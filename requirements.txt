@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────
+# requirements.txt — monitor_contratos_v3
+# FastAPI + scraping BORA/Comprar/TGN + Metodología Monteverde
+# ─────────────────────────────────────────────────────────────
+
+# ── API ───────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+jinja2>=3.1.0
+
+# ── Scraping ──────────────────────────────────────────────────
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+urllib3>=2.0.0
+pdfminer.six>=20221105
+
+# ── Datos ─────────────────────────────────────────────────────
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0
+
+# ── Utilidades ────────────────────────────────────────────────
+python-dateutil>=2.8.0
+holidays>=0.46
+certifi>=2024.0.0
+charset-normalizer>=3.0.0
+
+# ── Base de datos (tracking visitas/donaciones) ───────────────
+psycopg2-binary>=2.9.0

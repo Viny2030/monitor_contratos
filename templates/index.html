@@ -1,0 +1,1533 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitor de Contratos — Ph.D. Monteverde</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:        #040d1a;
+      --bg2:       #071428;
+      --bg3:       #0a1d3a;
+      --panel:     #0d2348;
+      --border:    #1a3a6b;
+      --border2:   #2a5298;
+      --accent:    #1e6fd9;
+      --accent2:   #3d9bff;
+      --accent3:   #7dc4ff;
+      --gold:      #f0a500;
+      --red:       #e03c3c;
+      --green:     #1db87a;
+      --text:      #e8f0fe;
+      --text2:     #8ab4e8;
+      --text3:     #4a7cc7;
+      --mono:      'IBM Plex Mono', monospace;
+      --sans:      'IBM Plex Sans', sans-serif;
+      --display:   'Syne', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── GRID LAYOUT ── */
+    .layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      grid-template-rows: 56px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      grid-column: 1 / -1;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .topbar-logo {
+      font-family: var(--display);
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--accent2);
+      letter-spacing: .04em;
+      white-space: nowrap;
+    }
+    .topbar-sub {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text3);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .topbar-sep { flex: 1; }
+    .topbar-status {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text3);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      padding: 24px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .nav-section {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: .14em;
+      color: var(--text3);
+      text-transform: uppercase;
+      padding: 14px 20px 6px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      cursor: pointer;
+      color: var(--text2);
+      font-size: 13px;
+      font-weight: 500;
+      transition: all .15s;
+      border-left: 3px solid transparent;
+      text-decoration: none;
+    }
+    .nav-item:hover {
+      background: var(--bg3);
+      color: var(--text);
+      border-left-color: var(--border2);
+    }
+    .nav-item.active {
+      background: linear-gradient(90deg, var(--panel), transparent);
+      color: var(--accent2);
+      border-left-color: var(--accent2);
+    }
+    .nav-icon { font-size: 16px; min-width: 20px; }
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text3);
+      line-height: 1.8;
+    }
+    .sidebar-footer a { color: var(--accent); text-decoration: none; }
+
+    /* ── MAIN CONTENT ── */
+    .main {
+      overflow-y: auto;
+      background:
+        radial-gradient(ellipse 60% 40% at 80% 0%, rgba(30,111,217,.08) 0%, transparent 70%),
+        var(--bg);
+    }
+
+    /* ── SECTIONS ── */
+    .section { display: none; padding: 32px; }
+    .section.active { display: block; }
+
+    .section-header {
+      margin-bottom: 28px;
+    }
+    .section-title {
+      font-family: var(--display);
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.1;
+    }
+    .section-title span {
+      color: var(--accent2);
+    }
+    .section-sub {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text3);
+      margin-top: 6px;
+      letter-spacing: .06em;
+    }
+
+    /* ── KPI GRID ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .kpi {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color .2s;
+    }
+    .kpi:hover { border-color: var(--border2); }
+    .kpi::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+    }
+    .kpi.red::before  { background: linear-gradient(90deg, var(--red), #ff7c7c); }
+    .kpi.gold::before { background: linear-gradient(90deg, var(--gold), #ffd270); }
+    .kpi.green::before{ background: linear-gradient(90deg, var(--green), #5de6a0); }
+    .kpi-val {
+      font-family: var(--display);
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+    }
+    .kpi-lbl {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-top: 6px;
+    }
+
+    /* ── CARDS ── */
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-family: var(--display);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text2);
+      letter-spacing: .04em;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title span { color: var(--accent2); }
+
+    /* ── CHARTS ── */
+    .chart-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    canvas { max-height: 260px; }
+
+    /* ── FILTERS ── */
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+      padding: 16px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .filters input, .filters select {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 12px;
+      padding: 7px 12px;
+      border-radius: 6px;
+      outline: none;
+      transition: border-color .15s;
+      min-width: 160px;
+    }
+    .filters input:focus, .filters select:focus {
+      border-color: var(--accent);
+    }
+    .filters input::placeholder { color: var(--text3); }
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn:hover { background: var(--accent2); }
+    .btn.ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text2);
+    }
+    .btn.ghost:hover { border-color: var(--accent); color: var(--accent2); }
+
+    /* ── TABLE ── */
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    thead tr {
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .08em;
+      color: var(--text3);
+      text-transform: uppercase;
+      padding: 10px 14px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    tbody tr {
+      border-bottom: 1px solid rgba(26,58,107,.4);
+      transition: background .1s;
+    }
+    tbody tr:hover { background: var(--bg3); }
+    td {
+      padding: 9px 14px;
+      color: var(--text2);
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    td a { color: var(--accent2); text-decoration: none; }
+    td a:hover { text-decoration: underline; }
+
+    /* ── BADGES ── */
+    .badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+    .badge-red    { background: rgba(224,60,60,.15);  color: #ff8080; border: 1px solid rgba(224,60,60,.3); }
+    .badge-gold   { background: rgba(240,165,0,.15);  color: #ffc040; border: 1px solid rgba(240,165,0,.3); }
+    .badge-green  { background: rgba(29,184,122,.15); color: #50e4a0; border: 1px solid rgba(29,184,122,.3); }
+    .badge-blue   { background: rgba(30,111,217,.15); color: var(--accent2); border: 1px solid rgba(30,111,217,.3); }
+    .badge-gray   { background: rgba(74,124,199,.1);  color: var(--text3); border: 1px solid var(--border); }
+
+    /* ── MONITOR TABS ── */
+    .tab-row {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+    .tab-btn {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .06em;
+      color: var(--text3);
+      background: transparent;
+      border: none;
+      padding: 10px 16px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all .15s;
+      text-transform: uppercase;
+    }
+    .tab-btn:hover { color: var(--text2); }
+    .tab-btn.active {
+      color: var(--accent2);
+      border-bottom-color: var(--accent2);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── SEARCH PROFILE ── */
+    .profile-search {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .profile-search input {
+      flex: 1;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      outline: none;
+      font-family: var(--sans);
+    }
+    .profile-search input:focus { border-color: var(--accent); }
+    .profile-search input::placeholder { color: var(--text3); }
+
+    /* ── STAT ROWS ── */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(26,58,107,.3);
+      font-size: 13px;
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-key { color: var(--text3); font-family: var(--mono); font-size: 11px; }
+    .stat-val { color: var(--text); font-weight: 600; font-family: var(--mono); }
+
+    /* ── LOADING ── */
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text3);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 32px;
+      justify-content: center;
+    }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent2);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── EMPTY STATE ── */
+    .empty {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text3);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    .empty-icon { font-size: 36px; margin-bottom: 12px; }
+
+    /* ── PAGINATION ── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text3);
+    }
+    .page-info { flex: 1; }
+
+    /* ── ESCENARIOS ── */
+    .escenario-list { display: flex; flex-direction: column; gap: 8px; }
+    .escenario-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .escenario-name {
+      font-size: 12px;
+      color: var(--text2);
+      min-width: 240px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .escenario-bar-wrap {
+      flex: 1;
+      height: 6px;
+      background: var(--bg3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .escenario-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 3px;
+      transition: width .5s ease;
+    }
+    .escenario-count {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text3);
+      min-width: 30px;
+      text-align: right;
+    }
+
+    /* ── MANUAL ── */
+    .manual-content { max-width: 800px; }
+    .manual-content h2 {
+      font-family: var(--display);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent2);
+      margin: 28px 0 10px;
+    }
+    .manual-content h2:first-child { margin-top: 0; }
+    .manual-content p {
+      font-size: 13px;
+      color: var(--text2);
+      line-height: 1.8;
+      margin-bottom: 10px;
+    }
+    .manual-content ul {
+      list-style: none;
+      padding: 0;
+      margin-bottom: 10px;
+    }
+    .manual-content li {
+      font-size: 13px;
+      color: var(--text2);
+      padding: 5px 0 5px 18px;
+      position: relative;
+      line-height: 1.6;
+    }
+    .manual-content li::before {
+      content: '→';
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+    }
+    .manual-content code {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: var(--bg3);
+      color: var(--accent3);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .escenario-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    .escenario-table th {
+      background: var(--bg3);
+      color: var(--text3);
+      padding: 8px 12px;
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .06em;
+    }
+    .escenario-table td {
+      padding: 8px 12px;
+      color: var(--text2);
+      border-bottom: 1px solid rgba(26,58,107,.3);
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .chart-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div>
+      <div class="topbar-logo">⚖️ MONITOR DE CONTRATOS</div>
+      <div class="topbar-sub">Ph.D. Monteverde · Algoritmos contra la Corrupción · BORA → Comprar → TGN</div>
+    </div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-status">
+      <div class="dot"></div>
+      <span id="status-txt">cargando…</span>
+    </div>
+  </header>
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="nav-section">Análisis</div>
+    <a class="nav-item active" data-section="inicio" onclick="nav('inicio',this)">
+      <span class="nav-icon">📊</span> Resumen
+    </a>
+    <a class="nav-item" data-section="contratos" onclick="nav('contratos',this)">
+      <span class="nav-icon">📄</span> Contratos
+    </a>
+    <a class="nav-item" data-section="organismos" onclick="nav('organismos',this)">
+      <span class="nav-icon">🏛️</span> Organismos
+    </a>
+    <a class="nav-item" data-section="proveedores" onclick="nav('proveedores',this)">
+      <span class="nav-icon">🏢</span> Proveedores
+    </a>
+    <a class="nav-item" data-section="monitor" onclick="nav('monitor',this)">
+      <span class="nav-icon">🔍</span> Monitor
+    </a>
+    <div class="nav-section">Sistema</div>
+    <a class="nav-item" data-section="estadisticas" onclick="nav('estadisticas',this)">
+      <span class="nav-icon">📈</span> Estadísticas
+    </a>
+    <a class="nav-item" data-section="manual" onclick="nav('manual',this)">
+      <span class="nav-icon">📖</span> Manual de Uso
+    </a>
+    <a class="nav-item" data-section="autor" onclick="nav('autor',this)">
+      <span class="nav-icon">👤</span> Autor
+    </a>
+    <div class="sidebar-footer">
+      Ref: Monteverde, V. (2020)<br>
+      <a href="https://doi.org/10.1108/JFC-04-2020-0062" target="_blank">Journal of Financial Crime</a><br>
+      Vol. 28 No. 2, pp. 580-595
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- ── INICIO ── -->
+    <div id="sec-inicio" class="section active">
+      <div class="section-header">
+        <div class="section-title">Resumen <span>Ejecutivo</span></div>
+        <div class="section-sub">BORA → COMPRAR.GOB.AR → TESORERÍA GENERAL DE LA NACIÓN · ACTUALIZACIÓN DIARIA</div>
+      </div>
+      <div id="kpi-grid" class="kpi-grid">
+        <div class="loading"><div class="spinner"></div> Cargando…</div>
+      </div>
+      <div class="chart-row">
+        <div class="card">
+          <div class="card-title">📐 Escenarios <span>Monteverde</span></div>
+          <div id="escenarios-list" class="escenario-list">
+            <div class="loading"><div class="spinner"></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">⚖️ Flujo <span>BORA → TGN</span></div>
+          <canvas id="chart-flujo"></canvas>
+        </div>
+      </div>
+      <div class="chart-row">
+        <div class="card">
+          <div class="card-title">🔴 Distribución de <span>Riesgo</span></div>
+          <canvas id="chart-riesgo"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-title">📅 Contratos por <span>Mes</span></div>
+          <canvas id="chart-evol"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CONTRATOS ── -->
+    <div id="sec-contratos" class="section">
+      <div class="section-header">
+        <div class="section-title">📄 <span>Contratos</span></div>
+        <div class="section-sub">FLUJO DIARIO BORA → COMPRAR → TGN CON TRAZABILIDAD COMPLETA</div>
+      </div>
+      <div class="filters">
+        <input id="f-organismo" type="text" placeholder="Organismo…">
+        <input id="f-cuit" type="text" placeholder="CUIT proveedor…">
+        <select id="f-riesgo">
+          <option value="">Todos los riesgos</option>
+          <option value="Alto">🔴 Alto</option>
+          <option value="Medio">🟡 Medio</option>
+          <option value="Bajo">🟢 Bajo</option>
+        </select>
+        <select id="f-alerta">
+          <option value="">Todos los estados</option>
+          <option value="FLUJO COMPLETO">🚨 Flujo Completo</option>
+          <option value="TGN">💰 BORA + TGN</option>
+          <option value="COMPRAR">🔷 BORA + Comprar</option>
+          <option value="SIN CUIT">⚠️ Sin CUIT</option>
+        </select>
+        <input id="f-desde" type="date" title="Desde">
+        <input id="f-hasta" type="date" title="Hasta">
+        <button class="btn" onclick="buscarContratos()">Buscar</button>
+        <button class="btn ghost" onclick="limpiarFiltros()">Limpiar</button>
+      </div>
+      <div id="contratos-info" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Organismo</th>
+              <th>Proveedor</th>
+              <th>CUIT</th>
+              <th>Monto</th>
+              <th>Flujo</th>
+              <th>Riesgo</th>
+              <th>Escenario</th>
+              <th>Link</th>
+            </tr>
+          </thead>
+          <tbody id="contratos-tbody">
+            <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Cargando…</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <div class="page-info" id="page-info">—</div>
+        <button class="btn ghost" id="btn-prev" onclick="cambiarPagina(-1)">← Anterior</button>
+        <button class="btn ghost" id="btn-next" onclick="cambiarPagina(1)">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- ── ORGANISMOS ── -->
+    <div id="sec-organismos" class="section">
+      <div class="section-header">
+        <div class="section-title">🏛️ <span>Organismos</span></div>
+        <div class="section-sub">RANKING POR MONTO ADJUDICADO · ÍNDICE HHI DE CONCENTRACIÓN</div>
+      </div>
+      <div class="chart-row">
+        <div class="card" style="grid-column:1/-1">
+          <div class="card-title">🏆 Top 15 organismos por monto adjudicado</div>
+          <canvas id="chart-organismos" style="max-height:320px"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔎 Perfil individual</div>
+        <div class="profile-search">
+          <input id="org-search" type="text" placeholder="Buscar organismo por nombre…">
+          <button class="btn" onclick="buscarOrganismo()">Ver perfil</button>
+        </div>
+        <div id="org-perfil"></div>
+      </div>
+    </div>
+
+    <!-- ── PROVEEDORES ── -->
+    <div id="sec-proveedores" class="section">
+      <div class="section-header">
+        <div class="section-title">🏢 <span>Proveedores</span></div>
+        <div class="section-sub">QUIÉN COBRÓ DEL ESTADO (TGN) · DIFERENCIAL ÚNICO EN ARGENTINA</div>
+      </div>
+      <div class="filters">
+        <input id="prov-busqueda" type="text" placeholder="CUIT o nombre de empresa…">
+        <select id="prov-orden">
+          <option value="monto_tgn">Mayor cobro TGN</option>
+          <option value="monto_adj">Mayor adjudicación</option>
+          <option value="contratos">Más contratos</option>
+          <option value="riesgo">Mayor riesgo</option>
+        </select>
+        <button class="btn" onclick="cargarProveedores()">Buscar</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>CUIT</th>
+              <th>Nombre</th>
+              <th>Contratos</th>
+              <th>Monto Adjudicado</th>
+              <th>Cobrado TGN</th>
+              <th>Riesgo Prom.</th>
+              <th>Perfil</th>
+            </tr>
+          </thead>
+          <tbody id="prov-tbody">
+            <tr><td colspan="7"><div class="loading"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="prov-perfil" style="margin-top:20px;"></div>
+    </div>
+
+    <!-- ── MONITOR ── -->
+    <div id="sec-monitor" class="section">
+      <div class="section-header">
+        <div class="section-title">🔍 <span>Monitor</span> Sistémico</div>
+        <div class="section-sub">HHI · FRAGMENTACIÓN · PROVEEDOR ÚNICO · ADJUDICADOS SIN COBRO TGN</div>
+      </div>
+      <div class="tab-row">
+        <button class="tab-btn active" onclick="tabMonitor('fragmentacion',this)">🔪 Fragmentación</button>
+        <button class="tab-btn" onclick="tabMonitor('unico',this)">🔒 Proveedor Único</button>
+        <button class="tab-btn" onclick="tabMonitor('hhi',this)">📐 HHI</button>
+        <button class="tab-btn" onclick="tabMonitor('fantasmas',this)">👻 Sin cobro TGN</button>
+      </div>
+      <div id="monitor-fragmentacion" class="tab-panel active">
+        <div class="loading"><div class="spinner"></div> Cargando…</div>
+      </div>
+      <div id="monitor-unico" class="tab-panel">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+      <div id="monitor-hhi" class="tab-panel">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+      <div id="monitor-fantasmas" class="tab-panel">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- ── ESTADÍSTICAS ── -->
+    <div id="sec-estadisticas" class="section">
+      <div class="section-header">
+        <div class="section-title">📈 <span>Estadísticas</span> de Uso</div>
+        <div class="section-sub">VISITAS POR SECCIÓN · CONSULTAS DE DONACIÓN</div>
+      </div>
+      <div class="filters">
+        <input id="stats-token" type="password" placeholder="Token de acceso…">
+        <button class="btn" onclick="cargarStats()">Ver estadísticas</button>
+      </div>
+      <div id="stats-content"></div>
+    </div>
+
+    <!-- ── MANUAL ── -->
+    <div id="sec-manual" class="section">
+      <div class="section-header">
+        <div class="section-title">📖 Manual de <span>Uso</span></div>
+        <div class="section-sub">GUÍA COMPLETA DEL SISTEMA · METODOLOGÍA MONTEVERDE</div>
+      </div>
+      <div class="manual-content">
+        <h2>¿Qué es este sistema?</h2>
+        <p>Monitor de Contratos es un sistema de detección automática de fenómenos corruptivos legales basado en la <strong>Teoría de Fenómenos Corruptivos</strong> del Ph.D. Vicente Humberto Monteverde (Journal of Financial Crime, 2020).</p>
+        <p>El sistema cruza tres fuentes oficiales del Estado Nacional argentino para trazar el flujo completo de un contrato: desde su publicación en el Boletín Oficial hasta el pago efectivo en la Tesorería General de la Nación.</p>
+
+        <h2>Flujo de datos</h2>
+        <ul>
+          <li><strong>BORA (Boletín Oficial)</strong> — Se extrae el índice de la Sección Tercera diariamente. Para cada adjudicación se descarga el aviso en PDF y se extraen CUIT, proveedor y monto mediante expresiones regulares.</li>
+          <li><strong>Comprar.gob.ar</strong> — Portal de contrataciones electrónicas de la ONC. Se extraen los procesos abiertos del día con organismo, tipo de procedimiento y número de proceso.</li>
+          <li><strong>TGN (Presupuesto Abierto)</strong> — API oficial del Ministerio de Economía. Se descarga el crédito ejecutado por organismo para confirmar qué jurisdicciones pagaron efectivamente.</li>
+        </ul>
+
+        <h2>Los 7 Escenarios de Monteverde</h2>
+        <table class="escenario-table">
+          <thead><tr><th>Escenario</th><th>Transferencia</th><th>Peso XAI</th></tr></thead>
+          <tbody>
+            <tr><td>Jubilaciones / Pensiones</td><td>Jubilados → Estado</td><td>10</td></tr>
+            <tr><td>Privatización / Concesión</td><td>Estado → Privados</td><td>9</td></tr>
+            <tr><td>Traslado de Impuestos</td><td>Contribuyentes → Estado</td><td>9</td></tr>
+            <tr><td>Obra Pública / Contratos</td><td>Estado → Contratistas</td><td>8</td></tr>
+            <tr><td>Tarifas Servicios Públicos</td><td>Usuarios → Concesionarias</td><td>7</td></tr>
+            <tr><td>Precios Regulados</td><td>Consumidores → Productores</td><td>6</td></tr>
+            <tr><td>Salarios y Paritarias</td><td>Asalariados → Empleadores</td><td>5</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Sección Contratos</h2>
+        <ul>
+          <li>Filtrá por organismo, CUIT, nivel de riesgo, estado de flujo o rango de fechas.</li>
+          <li>La columna <code>Flujo</code> indica si el contrato tiene trazabilidad completa BORA→TGN.</li>
+          <li>La columna <code>Escenario</code> muestra la clasificación según la Matriz XAI Monteverde.</li>
+        </ul>
+
+        <h2>Sección Organismos</h2>
+        <ul>
+          <li>Ranking por monto adjudicado acumulado en todo el período histórico.</li>
+          <li>El perfil individual muestra el <strong>Índice HHI</strong> de concentración de proveedores. Un HHI &gt; 2500 indica alta concentración (posible captura del organismo).</li>
+        </ul>
+
+        <h2>Sección Proveedores</h2>
+        <ul>
+          <li>Diferencial único: muestra quién <strong>cobró</strong> (TGN), no solo quién ganó la licitación.</li>
+          <li>Buscá por CUIT o nombre de empresa para ver el perfil completo con todos los organismos contratantes.</li>
+        </ul>
+
+        <h2>Sección Monitor</h2>
+        <ul>
+          <li><strong>Fragmentación</strong>: organismos con múltiples contratos de bajo monto, posiblemente divididos para evitar el umbral de licitación pública ($10M ARS).</li>
+          <li><strong>Proveedor Único</strong>: organismos que adjudican siempre al mismo CUIT — señal de captura.</li>
+          <li><strong>HHI</strong>: Índice Herfindahl-Hirschman de concentración de mercado por organismo.</li>
+          <li><strong>Sin cobro TGN</strong>: proveedores adjudicados que no registran cobro en TGN ("fantasmas").</li>
+        </ul>
+
+        <h2>Referencia académica</h2>
+        <p>Monteverde, V. H. (2020). <em>Great corruption – theory of corrupt phenomena</em>. Journal of Financial Crime, Vol. 28 No. 2, pp. 580-595. <a href="https://doi.org/10.1108/JFC-04-2020-0062" target="_blank" style="color:var(--accent2)">https://doi.org/10.1108/JFC-04-2020-0062</a></p>
+      </div>
+    </div>
+
+
+    <!-- ── AUTOR ── -->
+    <div id="sec-autor" class="section">
+      <div class="section-header">
+        <div class="section-title">👤 <span>Autor</span></div>
+        <div class="section-sub">PH.D. VICENTE HUMBERTO MONTEVERDE · ALGORITMOS CONTRA LA CORRUPCIÓN</div>
+      </div>
+
+      <!-- Perfil -->
+      <div class="card" style="display:flex;gap:28px;align-items:flex-start;margin-bottom:20px">
+        <img src="/static/foto.jpg" alt="Ph.D. Monteverde"
+          style="width:110px;height:110px;border-radius:50%;border:3px solid var(--accent);object-fit:cover;flex-shrink:0;">
+        <div>
+          <div style="font-family:var(--display);font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px">
+            Ph.D. Vicente Humberto Monteverde
+          </div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent2);letter-spacing:.08em;margin-bottom:12px">
+            PH.D. IN ECONOMICS · ESPECIALISTA EN ANÁLISIS ALGORÍTMICO Y CONTROL CIUDADANO DE LA TRANSPARENCIA
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
+            <span class="badge badge-blue">Ph.D.</span>
+            <span class="badge badge-blue">Transparencia Judicial</span>
+            <span class="badge badge-blue">Análisis de Datos</span>
+            <span class="badge badge-blue">Derecho Público</span>
+            <span class="badge badge-blue">Indicadores Internacionales</span>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <a href="mailto:vhmonte@retina.ar" style="background:var(--bg3);border:1px solid var(--border);color:var(--accent2);padding:6px 14px;border-radius:6px;font-size:12px;text-decoration:none">✉️ vhmonte@retina.ar</a>
+            <a href="mailto:viny01958@gmail.com" style="background:var(--bg3);border:1px solid var(--border);color:var(--accent2);padding:6px 14px;border-radius:6px;font-size:12px;text-decoration:none">✉️ viny01958@gmail.com</a>
+            <a href="https://orcid.org/0000-0001-8884-4811" target="_blank" style="background:var(--bg3);border:1px solid var(--border);color:var(--accent2);padding:6px 14px;border-radius:6px;font-size:12px;text-decoration:none">🔬 ORCID</a>
+            <a href="https://www.researchgate.net/profile/Vincenzo-Monteverde" target="_blank" style="background:var(--bg3);border:1px solid var(--border);color:var(--accent2);padding:6px 14px;border-radius:6px;font-size:12px;text-decoration:none">📄 ResearchGate</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-row">
+        <!-- Formación académica -->
+        <div class="card">
+          <div class="card-title">🎓 Formación <span>Académica</span></div>
+          <div class="stat-row"><span class="stat-key">Ph.D. of Philosophy, Major in Economics</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3)">Atlantic Int. University, USA · 2015</span></div>
+          <div class="stat-row"><span class="stat-key">Master en Administración Estratégica</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3)">Univ. de Belgrano · 1997</span></div>
+          <div class="stat-row"><span class="stat-key">Master in International Business</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3)">École Nationale des Ponts, Francia · 1995</span></div>
+          <div class="stat-row"><span class="stat-key">Contador Público Nacional</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3)">Univ. de Morón · 1984</span></div>
+          <div class="stat-row"><span class="stat-key">Diploma en Business Data Science & Analytics</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3)">Univ. de Aconcagua</span></div>
+          <div class="stat-row"><span class="stat-key">Perito Judicial · Master Compliance Officer</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3)">ESNECA Business School</span></div>
+        </div>
+
+        <!-- Actividad académica -->
+        <div class="card">
+          <div class="card-title">🏛️ Actividad <span>Académica</span></div>
+          <div class="stat-row" style="align-items:flex-start"><span class="stat-key" style="line-height:1.6">Co-director Diplomatura en Data Science</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap">UMSA</span></div>
+          <div class="stat-row" style="align-items:flex-start"><span class="stat-key" style="line-height:1.6">Profesor Diplomatura Business Analytics</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap">Aconcagua</span></div>
+          <div class="stat-row" style="align-items:flex-start"><span class="stat-key" style="line-height:1.6">Sistema de Monitoreo Judicial (IRA, CEPEJ, WJP)</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap">Desarrollador</span></div>
+          <div class="stat-row" style="align-items:flex-start"><span class="stat-key" style="line-height:1.6">Análisis de datos judiciales públicos</span><span style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap">datos.jus.gob.ar</span></div>
+          <div style="margin-top:12px;padding:10px 14px;background:var(--bg3);border-radius:8px;border:1px solid var(--border)">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px;letter-spacing:.06em">PUBLICACIÓN</div>
+            <a href="https://www.amazon.com/-/es/vicente-monteverde-ebook/dp/B0FKN699R1/" target="_blank"
+               style="color:var(--accent2);text-decoration:none;font-size:13px;font-weight:600">
+              Algorithms for Fraud and Corruption: Detection
+            </a>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">Kindle · 219 págs. · Agosto 2025 · JEL: C45, C53, D73, G28, K42</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Donación -->
+      <div class="card">
+        <div class="card-title">💛 Apoyar <span>el Proyecto</span></div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.7">
+          Este sistema es de acceso libre y gratuito. Si encontrás valor en la herramienta,
+          podés apoyar su desarrollo y mantenimiento con una donación voluntaria.
+        </p>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
+
+          <!-- ARS -->
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:18px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+              <span style="background:rgba(30,111,217,.2);color:var(--accent2);font-family:var(--mono);font-size:10px;padding:3px 10px;border-radius:20px;border:1px solid var(--border2)">AR Pesos — Argentina</span>
+            </div>
+            <div class="stat-row"><span class="stat-key">CBU</span><span class="stat-val" style="font-size:12px">0140005203400552652310</span></div>
+            <div class="stat-row"><span class="stat-key">ALIAS</span><span class="stat-val">ALGORIT.MONTE.PESOS</span></div>
+            <div class="stat-row"><span class="stat-key">TITULAR</span><span class="stat-val" style="font-size:12px">Vicente Humberto Monteverde</span></div>
+            <div class="stat-row"><span class="stat-key">CUIL</span><span class="stat-val">20-12034411-1</span></div>
+          </div>
+
+          <!-- USD -->
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:18px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+              <span style="background:rgba(29,184,122,.15);color:#50e4a0;font-family:var(--mono);font-size:10px;padding:3px 10px;border-radius:20px;border:1px solid rgba(29,184,122,.3)">💵 Dólares — Argentina</span>
+            </div>
+            <div class="stat-row"><span class="stat-key">CBU</span><span class="stat-val" style="font-size:12px">0140005204400550329709</span></div>
+            <div class="stat-row"><span class="stat-key">ALIAS</span><span class="stat-val">ALGO.MONTE.DOLARES</span></div>
+          </div>
+
+          <!-- Exterior -->
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:18px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+              <span style="background:rgba(240,165,0,.15);color:#ffc040;font-family:var(--mono);font-size:10px;padding:3px 10px;border-radius:20px;border:1px solid rgba(240,165,0,.3)">🌐 Desde el Exterior</span>
+            </div>
+            <div class="stat-row"><span class="stat-key">BANCO</span><span class="stat-val" style="font-size:12px">Banco Santander Río</span></div>
+            <div class="stat-row"><span class="stat-key">CUENTA USD</span><span class="stat-val">0052001835 00</span></div>
+            <div class="stat-row"><span class="stat-key">SWIFT</span><span class="stat-val">BSCHUYMMXXX</span></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── ESTADO ──────────────────────────────────────────────────────────────────
+const state = {
+  contratos: { offset: 0, limit: 100, total: 0 },
+  monitorCargado: false,
+};
+
+// ── NAVEGACIÓN ──────────────────────────────────────────────────────────────
+function nav(seccion, el) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('sec-' + seccion).classList.add('active');
+  el.classList.add('active');
+
+  if (seccion === 'contratos' && !state.contratosInit) {
+    state.contratosInit = true;
+    buscarContratos();
+  }
+  if (seccion === 'organismos' && !state.orgInit) {
+    state.orgInit = true;
+    cargarOrganismos();
+  }
+  if (seccion === 'proveedores' && !state.provInit) {
+    state.provInit = true;
+    cargarProveedores();
+  }
+  if (seccion === 'monitor' && !state.monitorCargado) {
+    state.monitorCargado = true;
+    cargarMonitor();
+  }
+}
+
+// ── FETCH HELPER ─────────────────────────────────────────────────────────────
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+// ── FORMATO ──────────────────────────────────────────────────────────────────
+function fmtMonto(v) {
+  const n = parseFloat(v) || 0;
+  if (n >= 1e9)  return '$' + (n/1e9).toFixed(1) + 'B';
+  if (n >= 1e6)  return '$' + (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3)  return '$' + (n/1e3).toFixed(0) + 'K';
+  return n > 0 ? '$' + n.toFixed(0) : '—';
+}
+
+function badgeRiesgo(r) {
+  if (!r || r === '') return '<span class="badge badge-gray">—</span>';
+  if (r === 'Alto')   return '<span class="badge badge-red">Alto</span>';
+  if (r === 'Medio')  return '<span class="badge badge-gold">Medio</span>';
+  return '<span class="badge badge-green">Bajo</span>';
+}
+
+function badgeFlujo(a) {
+  if (!a) return '<span class="badge badge-gray">—</span>';
+  if (a.includes('FLUJO COMPLETO')) return '<span class="badge badge-green">✅ Completo</span>';
+  if (a.includes('TGN'))            return '<span class="badge badge-blue">💰 TGN</span>';
+  if (a.includes('COMPRAR'))        return '<span class="badge badge-blue">🔷 Comprar</span>';
+  if (a.includes('SIN CUIT'))       return '<span class="badge badge-red">⚠️ Sin CUIT</span>';
+  return '<span class="badge badge-gray">' + a.substring(0,20) + '</span>';
+}
+
+// ── INICIO: RESUMEN ──────────────────────────────────────────────────────────
+async function cargarInicio() {
+  try {
+    const [res, status] = await Promise.all([
+      api('/api/resumen'),
+      api('/api/status'),
+    ]);
+
+    // Status bar
+    document.getElementById('status-txt').textContent =
+      `${status.total_registros?.toLocaleString() || 0} registros · ${status.ultimo_reporte || 'sin datos'}`;
+
+    // KPIs
+    const kpis = [
+      { val: (res.total||0).toLocaleString(),         lbl: 'Total contratos',      cls: '' },
+      { val: (res.riesgo_alto||0).toLocaleString(),   lbl: 'Riesgo alto',          cls: 'red' },
+      { val: (res.riesgo_medio||0).toLocaleString(),  lbl: 'Riesgo medio',         cls: 'gold' },
+      { val: (res.flujo_completo||0).toLocaleString(),lbl: 'Flujo completo',       cls: 'green' },
+      { val: (res.cobraron_tgn||0).toLocaleString(),  lbl: 'Cobraron en TGN',     cls: 'green' },
+      { val: (res.con_cuit||0).toLocaleString(),      lbl: 'Con CUIT extraído',   cls: '' },
+      { val: (res.organismos_unicos||0).toLocaleString(), lbl: 'Organismos únicos', cls: '' },
+      { val: fmtMonto(res.monto_total_ars||0),        lbl: 'Monto total ARS',     cls: 'blue' },
+    ];
+    document.getElementById('kpi-grid').innerHTML = kpis.map(k =>
+      `<div class="kpi ${k.cls}">
+        <div class="kpi-val">${k.val}</div>
+        <div class="kpi-lbl">${k.lbl}</div>
+      </div>`
+    ).join('');
+
+    // Escenarios
+    const esc = res.escenarios_monteverde || {};
+    const escKeys = Object.keys(esc);
+    const escMax  = Math.max(...Object.values(esc), 1);
+    document.getElementById('escenarios-list').innerHTML = escKeys.length
+      ? escKeys.map(k => `
+          <div class="escenario-item">
+            <div class="escenario-name">${k}</div>
+            <div class="escenario-bar-wrap">
+              <div class="escenario-bar" style="width:${(esc[k]/escMax*100).toFixed(0)}%"></div>
+            </div>
+            <div class="escenario-count">${esc[k]}</div>
+          </div>`).join('')
+      : '<div class="empty"><div class="empty-icon">📋</div>Sin clasificaciones aún</div>';
+
+    // Chart flujo
+    const flujoCtx = document.getElementById('chart-flujo').getContext('2d');
+    new Chart(flujoCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Flujo Completo', 'Con TGN', 'Solo BORA', 'Sin CUIT'],
+        datasets: [{
+          data: [
+            res.flujo_completo || 0,
+            (res.cobraron_tgn || 0) - (res.flujo_completo || 0),
+            (res.total || 0) - (res.cobraron_tgn || 0) - (res.total - res.con_cuit || 0),
+            (res.total || 0) - (res.con_cuit || 0),
+          ].map(v => Math.max(v, 0)),
+          backgroundColor: ['#1db87a','#1e6fd9','#3d9bff','#e03c3c'],
+          borderWidth: 0,
+          hoverOffset: 6,
+        }],
+      },
+      options: {
+        plugins: { legend: { labels: { color: '#8ab4e8', font: { family: 'IBM Plex Mono', size: 11 } } } },
+        cutout: '65%',
+      }
+    });
+
+    // Chart riesgo
+    const rieCtx = document.getElementById('chart-riesgo').getContext('2d');
+    new Chart(rieCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Alto', 'Medio', 'Bajo'],
+        datasets: [{
+          data: [res.riesgo_alto||0, res.riesgo_medio||0, (res.total||0)-(res.riesgo_alto||0)-(res.riesgo_medio||0)],
+          backgroundColor: ['#e03c3c','#f0a500','#1db87a'],
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono' } }, grid: { color: 'rgba(26,58,107,.3)' } },
+          y: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono' } }, grid: { color: 'rgba(26,58,107,.3)' } },
+        }
+      }
+    });
+
+    // Evolución mensual (usa /api/contratos con todos los datos)
+    cargarEvolucion();
+
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+async function cargarEvolucion() {
+  try {
+    const data = await api('/api/contratos?limit=1000&offset=0');
+    const byMes = {};
+    (data.data || []).forEach(r => {
+      const f = r.fecha || r.fecha_publicacion || '';
+      if (!f) return;
+      const mes = f.substring(0, 7);
+      byMes[mes] = (byMes[mes] || 0) + 1;
+    });
+    const meses = Object.keys(byMes).sort();
+    const ctx = document.getElementById('chart-evol').getContext('2d');
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: meses,
+        datasets: [{
+          data: meses.map(m => byMes[m]),
+          borderColor: '#1e6fd9',
+          backgroundColor: 'rgba(30,111,217,.12)',
+          borderWidth: 2,
+          pointBackgroundColor: '#3d9bff',
+          pointRadius: 4,
+          fill: true,
+          tension: 0.3,
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono', size: 10 } }, grid: { color: 'rgba(26,58,107,.3)' } },
+          y: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono' } }, grid: { color: 'rgba(26,58,107,.3)' } },
+        }
+      }
+    });
+  } catch(e) {}
+}
+
+// ── CONTRATOS ────────────────────────────────────────────────────────────────
+async function buscarContratos() {
+  state.contratos.offset = 0;
+  await _fetchContratos();
+}
+
+function limpiarFiltros() {
+  ['f-organismo','f-cuit','f-riesgo','f-alerta','f-desde','f-hasta'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  buscarContratos();
+}
+
+function cambiarPagina(dir) {
+  const nuevo = state.contratos.offset + dir * state.contratos.limit;
+  if (nuevo < 0 || nuevo >= state.contratos.total) return;
+  state.contratos.offset = nuevo;
+  _fetchContratos();
+}
+
+async function _fetchContratos() {
+  const params = new URLSearchParams({
+    limit:  state.contratos.limit,
+    offset: state.contratos.offset,
+  });
+  const add = (id, key) => { const v = document.getElementById(id)?.value; if (v) params.append(key, v); };
+  add('f-organismo', 'organismo');
+  add('f-cuit',      'cuit');
+  add('f-riesgo',    'nivel_riesgo');
+  add('f-alerta',    'alerta');
+  add('f-desde',     'desde');
+  add('f-hasta',     'hasta');
+
+  document.getElementById('contratos-tbody').innerHTML =
+    '<tr><td colspan="9"><div class="loading"><div class="spinner"></div> Cargando…</div></td></tr>';
+
+  try {
+    const data = await api('/api/contratos?' + params);
+    state.contratos.total = data.total || 0;
+
+    document.getElementById('contratos-info').textContent =
+      `${data.total?.toLocaleString() || 0} contratos encontrados`;
+
+    const off = state.contratos.offset;
+    const lim = state.contratos.limit;
+    document.getElementById('page-info').textContent =
+      `Mostrando ${off+1}–${Math.min(off+lim, data.total)} de ${data.total?.toLocaleString()}`;
+    document.getElementById('btn-prev').disabled = off === 0;
+    document.getElementById('btn-next').disabled = off + lim >= data.total;
+
+    const col_fecha = r => r.fecha || r.fecha_publicacion || '';
+    const col_org   = r => r.organismo_contratante || r.organismo || '';
+    const col_prov  = r => r.proveedor_adjudicado  || r.proveedor_nombre || '';
+    const col_monto = r => r.monto_adjudicado_bora || r.monto_adjudicado || '';
+
+    document.getElementById('contratos-tbody').innerHTML = (data.data || []).map(r => `
+      <tr>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--text3)">${col_fecha(r).substring(0,10)}</td>
+        <td title="${col_org(r)}">${col_org(r).substring(0,40)}</td>
+        <td title="${col_prov(r)}">${col_prov(r).substring(0,35) || '<span style="color:var(--text3)">—</span>'}</td>
+        <td style="font-family:var(--mono);font-size:11px">${r.cuit_proveedor || r.cuit || '—'}</td>
+        <td style="font-family:var(--mono);text-align:right">${fmtMonto(col_monto(r))}</td>
+        <td>${badgeFlujo(r.alerta)}</td>
+        <td>${badgeRiesgo(r.nivel_riesgo_licit)}</td>
+        <td style="font-size:11px;color:var(--text3)">${(r.tipo_decision||'').substring(0,25)}</td>
+        <td>${r.link_bora || r.link ? `<a href="${r.link_bora||r.link}" target="_blank">↗</a>` : '—'}</td>
+      </tr>`).join('') || '<tr><td colspan="9"><div class="empty"><div class="empty-icon">📭</div>Sin resultados</div></td></tr>';
+  } catch(e) {
+    document.getElementById('contratos-tbody').innerHTML =
+      '<tr><td colspan="9" style="color:var(--red);padding:20px;text-align:center">Error al cargar datos</td></tr>';
+  }
+}
+
+// ── ORGANISMOS ───────────────────────────────────────────────────────────────
+async function cargarOrganismos() {
+  try {
+    const data = await api('/api/organismos?top=15');
+    const orgs = data.data || [];
+
+    const ctx = document.getElementById('chart-organismos').getContext('2d');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: orgs.map(o => o.organismo?.substring(0,40)),
+        datasets: [{
+          label: 'Monto adjudicado (ARS)',
+          data:  orgs.map(o => o.monto_total || 0),
+          backgroundColor: orgs.map((_, i) =>
+            `hsla(${210 + i*4}, 80%, ${55 + i*1.5}%, 0.85)`
+          ),
+          borderRadius: 5,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono', size: 10 },
+                        callback: v => fmtMonto(v) }, grid: { color: 'rgba(26,58,107,.3)' } },
+          y: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono', size: 10 } },
+               grid: { display: false } },
+        }
+      }
+    });
+  } catch(e) { console.error(e); }
+}
+
+async function buscarOrganismo() {
+  const nombre = document.getElementById('org-search').value.trim();
+  if (!nombre) return;
+  const el = document.getElementById('org-perfil');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando perfil…</div>';
+  try {
+    const d = await api('/api/organismos/' + encodeURIComponent(nombre));
+    const hhi_color = d.hhi >= 2500 ? 'var(--red)' : d.hhi >= 1500 ? 'var(--gold)' : 'var(--green)';
+    el.innerHTML = `
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-val">${d.total_contratos?.toLocaleString()}</div><div class="kpi-lbl">Contratos</div></div>
+        <div class="kpi"><div class="kpi-val">${fmtMonto(d.monto_total)}</div><div class="kpi-lbl">Monto total</div></div>
+        <div class="kpi"><div class="kpi-val">${d.proveedores_unicos}</div><div class="kpi-lbl">Proveedores</div></div>
+        <div class="kpi"><div class="kpi-val" style="color:${hhi_color}">${Math.round(d.hhi)}</div><div class="kpi-lbl">HHI · ${d.hhi_interpretacion}</div></div>
+      </div>
+      ${d.red_flags && Object.keys(d.red_flags).length ? `
+        <div style="margin-bottom:16px">
+          <div class="card-title">🚨 Red Flags</div>
+          ${Object.entries(d.red_flags).map(([k,v]) =>
+            `<div class="stat-row"><span class="stat-key">${k}</span><span class="badge badge-red">${v}</span></div>`
+          ).join('')}
+        </div>` : ''}
+      <div class="card-title" style="margin-bottom:10px">🏆 Top proveedores</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>CUIT</th><th>Nombre</th><th>Contratos</th><th>Monto</th></tr></thead>
+          <tbody>
+            ${(d.top_proveedores||[]).map(p => `
+              <tr>
+                <td style="font-family:var(--mono);font-size:11px">${p.cuit_proveedor||p.cuit||'—'}</td>
+                <td>${(p.nombre||'—').substring(0,40)}</td>
+                <td style="text-align:center">${p.contratos}</td>
+                <td style="font-family:var(--mono);text-align:right">${fmtMonto(p.monto)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>Organismo no encontrado. Probá con parte del nombre.</div>`;
+  }
+}
+
+// ── PROVEEDORES ───────────────────────────────────────────────────────────────
+async function cargarProveedores() {
+  const busqueda = document.getElementById('prov-busqueda').value;
+  const orden    = document.getElementById('prov-orden').value;
+  const params   = new URLSearchParams({ top: 30, orden });
+  if (busqueda) params.append('busqueda', busqueda);
+
+  document.getElementById('prov-tbody').innerHTML =
+    '<tr><td colspan="7"><div class="loading"><div class="spinner"></div></div></td></tr>';
+
+  try {
+    const data = await api('/api/proveedores?' + params);
+    document.getElementById('prov-tbody').innerHTML = (data.data || []).map(p => `
+      <tr>
+        <td style="font-family:var(--mono);font-size:11px">${p.cuit||'—'}</td>
+        <td title="${p.nombre||''}">${(p.nombre||'—').substring(0,40)}</td>
+        <td style="text-align:center">${p.contratos||0}</td>
+        <td style="font-family:var(--mono);text-align:right">${fmtMonto(p.monto_adj)}</td>
+        <td style="font-family:var(--mono);text-align:right;color:var(--green)">${fmtMonto(p.monto_tgn)}</td>
+        <td>${p.riesgo_promedio ? badgeRiesgo(p.riesgo_promedio >= 5 ? 'Alto' : p.riesgo_promedio >= 2 ? 'Medio' : 'Bajo') : '—'}</td>
+        <td><button class="btn ghost" style="font-size:10px;padding:4px 10px"
+            onclick="verPerfilProv('${p.cuit}')">Ver</button></td>
+      </tr>`).join('') ||
+      '<tr><td colspan="7"><div class="empty"><div class="empty-icon">📭</div>Sin resultados</div></td></tr>';
+  } catch(e) {
+    document.getElementById('prov-tbody').innerHTML =
+      '<tr><td colspan="7" style="color:var(--red);padding:20px;text-align:center">Error al cargar</td></tr>';
+  }
+}
+
+async function verPerfilProv(cuit) {
+  const el = document.getElementById('prov-perfil');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando perfil…</div>';
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  try {
+    const d = await api('/api/proveedores/' + encodeURIComponent(cuit));
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-title">🏢 <span>${d.nombre}</span> · <span style="font-family:var(--mono);font-size:12px">${d.cuit}</span></div>
+        <div class="kpi-grid" style="margin-bottom:16px">
+          <div class="kpi"><div class="kpi-val">${d.total_contratos?.toLocaleString()}</div><div class="kpi-lbl">Contratos</div></div>
+          <div class="kpi"><div class="kpi-val">${fmtMonto(d.monto_adjudicado)}</div><div class="kpi-lbl">Adjudicado</div></div>
+          <div class="kpi green"><div class="kpi-val">${fmtMonto(d.monto_cobrado_tgn)}</div><div class="kpi-lbl">Cobrado TGN</div></div>
+          <div class="kpi"><div class="kpi-val">${d.organismos_unicos}</div><div class="kpi-lbl">Organismos</div></div>
+        </div>
+        ${d.red_flags && Object.keys(d.red_flags).length ? `
+          <div class="card-title" style="margin-bottom:8px">🚨 Red Flags</div>
+          ${Object.entries(d.red_flags).map(([k,v]) =>
+            `<div class="stat-row"><span class="stat-key">${k}</span><span class="badge badge-red">${v}</span></div>`
+          ).join('')}
+          <div style="margin-bottom:16px"></div>` : ''}
+        <div class="card-title" style="margin-bottom:10px">🏛️ Organismos contratantes</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Organismo</th><th>Monto</th></tr></thead>
+            <tbody>
+              ${(d.top_organismos||[]).map(o => `
+                <tr>
+                  <td>${(o.organismo_contratante||o.organismo||'—').substring(0,60)}</td>
+                  <td style="font-family:var(--mono);text-align:right">${fmtMonto(o._monto||o.monto)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div>No se pudo cargar el perfil</div>`;
+  }
+}
+
+// ── MONITOR ───────────────────────────────────────────────────────────────────
+function tabMonitor(tab, el) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('monitor-' + tab).classList.add('active');
+}
+
+async function cargarMonitor() {
+  try {
+    const data = await api('/api/monitor');
+
+    // Fragmentación
+    document.getElementById('monitor-fragmentacion').innerHTML = renderMonitorTable(
+      data.fragmentacion || [],
+      ['organismo','contratos','monto_promedio','monto_total'],
+      ['Organismo','Contratos','Monto Promedio','Monto Total'],
+      'No se detectaron patrones de fragmentación'
+    );
+
+    // Proveedor único
+    document.getElementById('monitor-unico').innerHTML = renderMonitorTable(
+      data.proveedor_unico || [],
+      ['organismo','total_contratos','cuits_distintos','monto_total'],
+      ['Organismo','Contratos','CUITs Distintos','Monto Total'],
+      'No se detectaron organismos con proveedor único'
+    );
+
+    // HHI
+    const hhiRows = (data.hhi || []).map(r => ({...r,
+      hhi_fmt: r.hhi,
+      interp: r.interpretacion,
+    }));
+    document.getElementById('monitor-hhi').innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Organismo</th><th>HHI</th><th>Contratos</th><th>Concentración</th></tr></thead>
+          <tbody>
+            ${hhiRows.map(r => `
+              <tr>
+                <td title="${r.organismo}">${(r.organismo||'').substring(0,55)}</td>
+                <td style="font-family:var(--mono);font-weight:700;color:${r.hhi>=2500?'var(--red)':r.hhi>=1500?'var(--gold)':'var(--green)'}">${Math.round(r.hhi)}</td>
+                <td style="text-align:center">${r.contratos}</td>
+                <td>${r.hhi>=2500?'<span class="badge badge-red">Alta</span>':r.hhi>=1500?'<span class="badge badge-gold">Moderada</span>':'<span class="badge badge-green">Competitivo</span>'}</td>
+              </tr>`).join('') || '<tr><td colspan="4"><div class="empty"><div class="empty-icon">📐</div>Sin datos suficientes</div></td></tr>'}
+          </tbody>
+        </table>
+      </div>`;
+
+    // Fantasmas
+    document.getElementById('monitor-fantasmas').innerHTML = renderMonitorTable(
+      data.fantasmas || [],
+      ['cuit','nombre','contratos','monto_total'],
+      ['CUIT','Nombre','Contratos','Monto Adjudicado'],
+      '✅ Todos los adjudicados registran cobro en TGN'
+    );
+
+  } catch(e) {
+    console.error(e);
+    ['fragmentacion','unico','hhi','fantasmas'].forEach(id => {
+      document.getElementById('monitor-' + id).innerHTML =
+        '<div style="color:var(--red);padding:20px;text-align:center">Error al cargar</div>';
+    });
+  }
+}
+
+function renderMonitorTable(rows, cols, headers, emptyMsg) {
+  if (!rows.length) return `<div class="empty"><div class="empty-icon">✅</div>${emptyMsg}</div>`;
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr>${cols.map((c,i) => {
+            const v = r[c];
+            if (i === 0) return `<td title="${v}">${String(v||'—').substring(0,55)}</td>`;
+            if (typeof v === 'number' && (c.includes('monto')||c.includes('total_')))
+              return `<td style="font-family:var(--mono);text-align:right">${fmtMonto(v)}</td>`;
+            if (typeof v === 'number')
+              return `<td style="font-family:var(--mono);text-align:center">${v}</td>`;
+            return `<td>${v||'—'}</td>`;
+          }).join('')}</tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// ── ESTADÍSTICAS ──────────────────────────────────────────────────────────────
+async function cargarStats() {
+  const token = document.getElementById('stats-token').value;
+  const el = document.getElementById('stats-content');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  try {
+    const r = await fetch('/api/stats', { headers: { 'X-Refresh-Token': token } });
+    if (!r.ok) { el.innerHTML = '<div style="color:var(--red);padding:20px">Token inválido</div>'; return; }
+    const d = await r.json();
+    el.innerHTML = `
+      <div class="kpi-grid" style="margin-bottom:20px">
+        <div class="kpi"><div class="kpi-val">${(d.total_visitas||0).toLocaleString()}</div><div class="kpi-lbl">Visitas totales</div></div>
+      </div>
+      <div class="chart-row">
+        <div class="card">
+          <div class="card-title">📊 Visitas por sección</div>
+          ${(d.por_seccion||[]).map(s => `
+            <div class="stat-row">
+              <span class="stat-key">${s.seccion}</span>
+              <span class="stat-val">${s.v?.toLocaleString()}</span>
+            </div>`).join('')}
+        </div>
+        <div class="card">
+          <div class="card-title">📅 Visitas por día (últimos 14)</div>
+          ${(d.por_dia||[]).map(s => `
+            <div class="stat-row">
+              <span class="stat-key">${s.dia}</span>
+              <span class="stat-val">${s.v?.toLocaleString()}</span>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--red);padding:20px">Error al cargar estadísticas</div>';
+  }
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+cargarInicio();
+</script>
+</body>
+</html>

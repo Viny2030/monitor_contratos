@@ -18,7 +18,8 @@ Endpoints API:
   GET  /api/stats         → estadísticas de uso (requiere token)
   POST /api/refresh       → dispara scraping manual (requiere token)
 """
-
+from dotenv import load_dotenv
+load_dotenv()
 import glob
 import os
 import re

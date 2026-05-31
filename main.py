@@ -41,6 +41,9 @@ from db import init_db, registrar_visita, get_stats
 
 DATA_DIR      = "/app/data" if os.path.exists("/app") else "data"
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN", "dev-token")
+ADMIN_KEY     = os.getenv("ADMIN_KEY", REFRESH_TOKEN)   # alias para compatibilidad
+GA_API_SECRET    = os.getenv("GA_API_SECRET", "")
+GA_MEASUREMENT_ID = os.getenv("GA_MEASUREMENT_ID", "")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -603,7 +606,7 @@ def monitor():
 
 @app.get("/api/stats")
 def stats(x_refresh_token: str = Header(None)):
-    if x_refresh_token != REFRESH_TOKEN:
+    if x_refresh_token not in (REFRESH_TOKEN, ADMIN_KEY):
         raise HTTPException(status_code=401, detail="Token inválido")
     return get_stats()
 
@@ -624,3 +627,15 @@ def refresh(x_refresh_token: str = Header(None)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def _token_valido(t):
+    return t in (REFRESH_TOKEN, ADMIN_KEY)
+
+
+@app.post("/api/reload")
+def reload_alias(x_refresh_token: str = Header(None)):
+    """Alias de /api/refresh — compatibilidad con workflows anteriores."""
+    if not _token_valido(x_refresh_token):
+        raise HTTPException(status_code=401, detail="Token inválido")
+    _invalidar_cache()
+    return {"status": "ok (reload alias)", "timestamp": datetime.now().isoformat()}

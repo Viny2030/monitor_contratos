@@ -1,0 +1,126 @@
+name: Monitor Diario Integrado BORA + Comprar + TGN
+
+on:
+  schedule:
+    - cron: '0 12 * * 1-5'  # 09:00 Argentina (UTC-3), lunes a viernes
+  workflow_dispatch:          # permite ejecución manual desde GitHub
+
+permissions:
+  contents: write
+
+jobs:
+  run-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ── 1. Descargar código ──────────────────────────────────
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # ── 2. Configurar Python ─────────────────────────────────
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # ── 3. Instalar dependencias ─────────────────────────────
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ── 4. Capturar fecha del run ────────────────────────────
+      - name: Capturar fecha
+        id: fecha
+        run: echo "fecha=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      # ── 5. Ciclo diario principal ────────────────────────────
+      - name: Ejecutar diario.py (BORA + Comprar + TGN)
+        run: python diario.py
+        env:
+          TGN_TOKEN: ${{ secrets.TGN_TOKEN }}
+
+      # ── 6. Análisis de concentración (sistémico) ─────────────
+      - name: Ejecutar analisis_concentracion.py
+        run: python analisis_concentracion.py --exportar
+        continue-on-error: true
+
+      # ── 7. Guardar y sincronizar ─────────────────────────────
+      - name: Commit y push de reportes generados
+        run: |
+          git config --global user.name  'Robot Monitor'
+          git config --global user.email 'robot@noreply.github.com'
+          git add data/
+          git add data/perfiles/ 2>/dev/null || true
+          git add data/analisis/ 2>/dev/null || true
+          git diff --staged --quiet \
+            && echo "Sin cambios nuevos — nada que commitear" \
+            && exit 0
+          git stash
+          git fetch origin main
+          git rebase origin/main
+          git stash pop
+          git add data/
+          git add data/perfiles/ 2>/dev/null || true
+          git add data/analisis/ 2>/dev/null || true
+          git commit -m "Monitor diario $(date +'%Y-%m-%d') — BORA+Comprar+TGN+Concentración"
+          git push origin HEAD:main
+
+      # ── 7b. Invalidar caché en Railway ───────────────────────
+      - name: Notificar refresh a Railway
+        run: |
+          echo "Llamando a /api/refresh en Railway..."
+          STATUS=$(curl -s -o /tmp/rail_resp.json -w "%{http_code}" \
+            -X POST \
+            -H "x-refresh-token: ${{ secrets.REFRESH_TOKEN }}" \
+            https://monitorcontratos-production.up.railway.app/api/refresh)
+          cat /tmp/rail_resp.json
+          echo ""
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Railway recargó los datos correctamente"
+          else
+            echo "⚠️ Railway respondió HTTP $STATUS — los datos se cargarán en el próximo request"
+          fi
+        continue-on-error: true
+
+      # ── 8. Notificación de éxito ─────────────────────────────
+      - name: Notificar éxito
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USER }}
+          password: ${{ secrets.MAIL_PASS }}
+          to: ${{ secrets.MAIL_TO }}
+          from: Monitor BORA <${{ secrets.MAIL_USER }}>
+          subject: "✅ Monitor diario OK — ${{ steps.fecha.outputs.fecha }}"
+          body: |
+            El ciclo diario BORA + Comprar + TGN se ejecutó correctamente.
+            🔗 Ver run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      # ── 9. Notificación de fallo ─────────────────────────────
+      - name: Notificar fallo
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USER }}
+          password: ${{ secrets.MAIL_PASS }}
+          to: ${{ secrets.MAIL_TO }}
+          from: Monitor BORA <${{ secrets.MAIL_USER }}>
+          subject: "❌ Monitor diario FALLÓ — ${{ steps.fecha.outputs.fecha }}"
+          body: |
+            ⚠️ El ciclo diario falló y requiere revisión.
+            🔗 Ver logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Causas comunes:
+            - BORA / Comprar / TGN no respondieron
+            - Error en el código de scraping
+            - Problema de autenticación en el push

@@ -602,6 +602,97 @@ def monitor():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# API — LICITACIONES/DATOS  (consumido por repo monitor / IRI)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/licitaciones/datos")
+def licitaciones_datos(fecha: str | None = Query(None)):
+    """
+    Endpoint consumido por el IRI (repo monitor).
+    Devuelve flujo, comprar, tgn y totales del último reporte disponible
+    (o del reporte de `fecha` si se especifica, formato YYYY-MM-DD).
+    """
+    registrar_visita("licitaciones_datos")
+
+    # Buscar archivo de reporte
+    if fecha:
+        patron = os.path.join(DATA_DIR, "**", f"reporte_{fecha}.xlsx")
+        archivos = glob.glob(patron, recursive=True)
+    else:
+        archivos = _buscar_xlsx()
+
+    if not archivos:
+        return {"sin_datos": True, "flujo": [], "comprar": [], "tgn": [], "totales": {}}
+
+    archivo = archivos[0]
+
+    try:
+        xl = pd.ExcelFile(archivo)
+    except Exception as e:
+        return {"sin_datos": True, "error": str(e), "flujo": [], "comprar": [], "tgn": [], "totales": {}}
+
+    def _hoja(opciones):
+        return next((h for h in opciones if h in xl.sheet_names), None)
+
+    # ── Flujo completo ────────────────────────────────────────────────────────
+    flujo = []
+    hoja_flujo = _hoja(["🚨 Flujo Completo", "Flujo Completo"])
+    if hoja_flujo:
+        df_f = xl.parse(hoja_flujo).fillna("")
+        # Mapear columnas al esquema que espera el IRI
+        for c in df_f.select_dtypes(include=["datetime64"]).columns:
+            df_f[c] = df_f[c].dt.strftime("%Y-%m-%d")
+        # Renombrar para que el IRI los encuentre
+        renames = {
+            "score_riesgo_licit":  "indice_fenomeno_corruptivo",
+            "nivel_riesgo_licit":  "nivel_riesgo_teorico",
+            "organismo_contratante": "organismo",
+            "proveedor_adjudicado":  "proveedor",
+            "monto_adjudicado_bora": "monto",
+        }
+        df_f = df_f.rename(columns={k: v for k, v in renames.items() if k in df_f.columns})
+        flujo = df_f.to_dict(orient="records")
+
+    # ── Comprar ───────────────────────────────────────────────────────────────
+    comprar = []
+    hoja_comp = _hoja(["🛒 Comprar ONC", "Comprar ONC", "Comprar"])
+    if hoja_comp:
+        df_c = xl.parse(hoja_comp).fillna("")
+        for c in df_c.select_dtypes(include=["datetime64"]).columns:
+            df_c[c] = df_c[c].dt.strftime("%Y-%m-%d")
+        renames_c = {"organismo_contratante": "organismo", "tipo_procedimiento": "tipo"}
+        df_c = df_c.rename(columns={k: v for k, v in renames_c.items() if k in df_c.columns})
+        comprar = df_c.to_dict(orient="records")
+
+    # ── TGN ───────────────────────────────────────────────────────────────────
+    tgn = []
+    hoja_tgn = _hoja(["💰 TGN Pagos", "TGN Pagos", "TGN"])
+    if hoja_tgn:
+        df_t = xl.parse(hoja_tgn).fillna("")
+        for c in df_t.select_dtypes(include=["datetime64"]).columns:
+            df_t[c] = df_t[c].dt.strftime("%Y-%m-%d")
+        renames_t = {"organismo_tgn": "organismo", "monto_pagado": "monto", "jurisdiccion": "jurisdiccion"}
+        df_t = df_t.rename(columns={k: v for k, v in renames_t.items() if k in df_t.columns})
+        tgn = df_t.to_dict(orient="records")
+
+    totales = {
+        "flujo":   len(flujo),
+        "comprar": len(comprar),
+        "tgn":     len(tgn),
+        "archivo": os.path.basename(archivo),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    return {
+        "sin_datos": len(flujo) == 0 and len(comprar) == 0 and len(tgn) == 0,
+        "flujo":    flujo,
+        "comprar":  comprar,
+        "tgn":      tgn,
+        "totales":  totales,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API — STATS Y REFRESH
 # ─────────────────────────────────────────────────────────────────────────────
 

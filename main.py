@@ -20,6 +20,8 @@ Endpoints API:
 """
 from dotenv import load_dotenv
 load_dotenv()
+
+MEACI_URL = "https://mapatransparencia-production.up.railway.app"
 import glob
 import os
 import re
@@ -28,6 +30,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+import httpx
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -723,6 +726,36 @@ def refresh(x_refresh_token: str = Header(None)):
 def _token_valido(t):
     return t in (REFRESH_TOKEN, ADMIN_KEY)
 
+
+# ── MEACI: Cruce Internacional de CUIT ───────────────────────────────────────
+@app.get("/api/cruce-cuit")
+async def cruce_cuit(cuit: str):
+    """Consulta si un CUIT está sancionado internacionalmente (vía MEACI)."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{MEACI_URL}/api/cruce-cuit", params={"cuit": cuit})
+            if r.status_code == 200:
+                return r.json()
+            return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "detalle": "sin datos"}
+    except Exception as e:
+        return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "error": str(e)}
+
+@app.get("/api/cruce-cuits-bulk")
+async def cruce_cuits_bulk(cuits: str):
+    """Consulta múltiples CUITs separados por coma. Retorna solo los sancionados."""
+    lista = [c.strip() for c in cuits.split(",") if c.strip()]
+    alertas = {}
+    async with httpx.AsyncClient(timeout=8) as client:
+        for cuit in lista[:50]:
+            try:
+                r = await client.get(f"{MEACI_URL}/api/cruce-cuit", params={"cuit": cuit})
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("sancionado"):
+                        alertas[cuit] = data
+            except Exception:
+                pass
+    return {"alertas": alertas, "total_consultados": len(lista), "total_alertas": len(alertas)}
 
 @app.post("/api/reload")
 def reload_alias(x_refresh_token: str = Header(None)):

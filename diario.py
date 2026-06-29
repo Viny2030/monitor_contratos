@@ -209,26 +209,30 @@ def _texto_aviso_bora(aviso_id: str, fecha_pub: str) -> str:
 
 
 def _extraer_proveedor(texto: str) -> str:
+    # pdfminer inserta espacios dobles (kerning del PDF); colapsamos antes de buscar
+    texto_norm = re.sub(r"  +", " ", texto)
     patrones = [
         r'PROVEEDOR ADJUDICADO[:\s]+([A-ZÁÉÍÓÚÑ][^\n\r]{3,80}?)(?:\s*[,.]?\s*CUIT|\s*$)',
-        r'ADJUDICATARIO[:\s]+([A-ZÁÉÍÓÚÑ][^\n\r]{3,80}?)(?:\s*[,.]?\s*CUIT|\s*$)',
+        r'ADJUDICATARIO[:\s]+([A-ZÁÉÍÓÚÑ][^\n\r]{3,80}?)(?:\s*[,.]?\s*CUIT|\s*[,.])',
         r'adjudica[dó]\s+(?:la\s+firma\s+|a\s+la\s+firma\s+|a\s+)([A-ZÁÉÍÓÚÑ][^\n\r]{3,80}?)(?:\s*CUIT|\s*[,.])',
         r'firma\s+([A-ZÁÉÍÓÚÑ][^\n\r]{3,60}?)\s*[,.]?\s*(?:CUIT|C\.U\.I\.T)',
     ]
     for patron in patrones:
-        m = re.search(patron, texto, re.IGNORECASE)
+        m = re.search(patron, texto_norm, re.IGNORECASE)
         if m:
-            res = m.group(1).strip().rstrip(".,- ")
+            res = re.sub(r"\s+", " ", m.group(1)).strip().rstrip(".,- ")
             if len(res) > 3:
                 return res
     return ""
 
 
 def _extraer_monto_bora(texto: str) -> str:
+    # pdfminer inserta espacios dobles (kerning del PDF); colapsamos y usamos \s+ en palabras clave
+    texto_norm = re.sub(r"  +", " ", texto)
     m = re.search(
-        r'(?:MONTO TOTAL ADJUDICADO|TOTAL ADJUDICADO|IMPORTE ADJUDICADO|MONTO ADJUDICADO)'
+        r'(?:MONTO\s+TOTAL\s+ADJUDICADO|TOTAL\s+ADJUDICADO|IMPORTE\s+ADJUDICADO|MONTO\s+ADJUDICADO)'
         r'[^\$\d]*\$?\s*([\d\.,]+)',
-        texto, re.IGNORECASE
+        texto_norm, re.IGNORECASE
     )
     return "$" + m.group(1).strip() if m else ""
 

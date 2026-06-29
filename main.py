@@ -84,9 +84,11 @@ _cache: dict = {"df": None, "timestamp": None}
 
 def _buscar_xlsx() -> list[str]:
     patron = os.path.join(DATA_DIR, "**", "reporte_*.xlsx")
+    # Ordenar por nombre (contiene la fecha YYYY-MM-DD) en vez de mtime,
+    # porque en Railway todos los archivos tienen el mismo mtime del build.
     return sorted(
         glob.glob(patron, recursive=True),
-        key=lambda x: os.path.getmtime(x),
+        key=lambda x: os.path.basename(x),
         reverse=True,
     )
 

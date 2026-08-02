@@ -560,6 +560,44 @@
       border-bottom: 1px solid rgba(26,58,107,.3);
     }
 
+    /* ── AGENTIC AI ── */
+    .btn-ia {
+      background: linear-gradient(90deg, var(--accent), #7d4dff);
+      color: #fff;
+      border: none;
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 7px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 10px 0;
+      transition: opacity .15s;
+    }
+    .btn-ia:hover { opacity: .85; }
+    .btn-ia:disabled { opacity: .5; cursor: wait; }
+    .ia-box {
+      margin: 4px 0 16px;
+      padding: 14px 16px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-left: 3px solid var(--accent2);
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--text2);
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+    .ia-label {
+      display: block;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--accent3);
+      margin-bottom: 6px;
+    }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 768px) {
       .layout { grid-template-columns: 1fr; }
@@ -1299,7 +1337,9 @@ async function buscarOrganismo() {
   el.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando perfil…</div>';
   try {
     const d = await api('/api/organismos/' + encodeURIComponent(nombre));
+    state.orgPerfilActual = d;
     const hhi_color = d.hhi >= 2500 ? 'var(--red)' : d.hhi >= 1500 ? 'var(--gold)' : 'var(--green)';
+    const mostrarIA = d.hhi >= 1500 || (d.red_flags && Object.keys(d.red_flags).length);
     el.innerHTML = `
       <div class="kpi-grid" style="margin-bottom:16px">
         <div class="kpi"><div class="kpi-val">${d.total_contratos?.toLocaleString()}</div><div class="kpi-lbl">Contratos</div></div>
@@ -1314,6 +1354,8 @@ async function buscarOrganismo() {
             `<div class="stat-row"><span class="stat-key">${k}</span><span class="badge badge-red">${v}</span></div>`
           ).join('')}
         </div>` : ''}
+      ${mostrarIA ? `<button class="btn-ia" id="btn-ia-org" onclick="explicarOrganismoIA()">🤖 Explicar con IA</button>
+      <div class="ia-box" id="ia-box-org" style="display:none"></div>` : ''}
       <div class="card-title" style="margin-bottom:10px">🏆 Top proveedores</div>
       <div class="table-wrap">
         <table>
@@ -1331,6 +1373,46 @@ async function buscarOrganismo() {
       </div>`;
   } catch(e) {
     el.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>Organismo no encontrado. Probá con parte del nombre.</div>`;
+  }
+}
+
+async function explicarOrganismoIA() {
+  const btn = document.getElementById('btn-ia-org');
+  const box = document.getElementById('ia-box-org');
+  const d = state.orgPerfilActual;
+  if (!d) return;
+  btn.disabled = true;
+  btn.textContent = '🤖 Pensando…';
+  box.style.display = 'block';
+  box.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  try {
+    const resp = await fetch('/api/ia/explicar-organismo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        organismo: d.organismo || d.nombre || '',
+        total_contratos: d.total_contratos || 0,
+        monto_total: d.monto_total || 0,
+        proveedores_unicos: d.proveedores_unicos || 0,
+        hhi: d.hhi || 0,
+        hhi_interpretacion: d.hhi_interpretacion || '',
+        red_flags: d.red_flags || {},
+        top_proveedores: d.top_proveedores || [],
+      }),
+    });
+    const data = await resp.json();
+    if (data.disponible) {
+      box.innerHTML = `<span class="ia-label">🤖 Explicación (Claude)</span>${data.explicacion}`;
+      btn.style.display = 'none';
+    } else {
+      box.innerHTML = `<span class="ia-label">IA no disponible</span>${data.motivo || 'Sin detalle.'}`;
+      btn.disabled = false;
+      btn.textContent = '🤖 Explicar con IA';
+    }
+  } catch(e) {
+    box.innerHTML = `<span class="ia-label">Error</span>No se pudo consultar la IA.`;
+    btn.disabled = false;
+    btn.textContent = '🤖 Explicar con IA';
   }
 }
 
@@ -1370,6 +1452,8 @@ async function verPerfilProv(cuit) {
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
     const d = await api('/api/proveedores/' + encodeURIComponent(cuit));
+    state.provPerfilActual = d;
+    const mostrarIA = d.red_flags && Object.keys(d.red_flags).length;
     el.innerHTML = `
       <div class="card">
         <div class="card-title">🏢 <span>${d.nombre}</span> · <span style="font-family:var(--mono);font-size:12px">${d.cuit}</span></div>
@@ -1385,6 +1469,8 @@ async function verPerfilProv(cuit) {
             `<div class="stat-row"><span class="stat-key">${k}</span><span class="badge badge-red">${v}</span></div>`
           ).join('')}
           <div style="margin-bottom:16px"></div>` : ''}
+        ${mostrarIA ? `<button class="btn-ia" id="btn-ia-prov" onclick="explicarProveedorIA()">🤖 Explicar con IA</button>
+        <div class="ia-box" id="ia-box-prov" style="display:none"></div>` : ''}
         <div class="card-title" style="margin-bottom:10px">🏛️ Organismos contratantes</div>
         <div class="table-wrap">
           <table>
@@ -1404,6 +1490,46 @@ async function verPerfilProv(cuit) {
   }
 }
 
+async function explicarProveedorIA() {
+  const btn = document.getElementById('btn-ia-prov');
+  const box = document.getElementById('ia-box-prov');
+  const d = state.provPerfilActual;
+  if (!d) return;
+  btn.disabled = true;
+  btn.textContent = '🤖 Pensando…';
+  box.style.display = 'block';
+  box.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  try {
+    const resp = await fetch('/api/ia/explicar-proveedor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cuit: d.cuit || '',
+        nombre: d.nombre || '',
+        total_contratos: d.total_contratos || 0,
+        monto_adjudicado: d.monto_adjudicado || 0,
+        monto_cobrado_tgn: d.monto_cobrado_tgn || 0,
+        organismos_unicos: d.organismos_unicos || 0,
+        red_flags: d.red_flags || {},
+        top_organismos: d.top_organismos || [],
+      }),
+    });
+    const data = await resp.json();
+    if (data.disponible) {
+      box.innerHTML = `<span class="ia-label">🤖 Explicación (Claude)</span>${data.explicacion}`;
+      btn.style.display = 'none';
+    } else {
+      box.innerHTML = `<span class="ia-label">IA no disponible</span>${data.motivo || 'Sin detalle.'}`;
+      btn.disabled = false;
+      btn.textContent = '🤖 Explicar con IA';
+    }
+  } catch(e) {
+    box.innerHTML = `<span class="ia-label">Error</span>No se pudo consultar la IA.`;
+    btn.disabled = false;
+    btn.textContent = '🤖 Explicar con IA';
+  }
+}
+
 // ── MONITOR ───────────────────────────────────────────────────────────────────
 function tabMonitor(tab, el) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1415,9 +1541,12 @@ function tabMonitor(tab, el) {
 async function cargarMonitor() {
   try {
     const data = await api('/api/monitor');
+    state.monitorData = state.monitorData || {};
 
     // Fragmentación
+    state.monitorData.fragmentacion = data.fragmentacion || [];
     document.getElementById('monitor-fragmentacion').innerHTML = renderMonitorTable(
+      'fragmentacion',
       data.fragmentacion || [],
       ['organismo','contratos','monto_promedio','monto_total'],
       ['Organismo','Contratos','Monto Promedio','Monto Total'],
@@ -1425,7 +1554,9 @@ async function cargarMonitor() {
     );
 
     // Proveedor único
+    state.monitorData.unico = data.proveedor_unico || [];
     document.getElementById('monitor-unico').innerHTML = renderMonitorTable(
+      'unico',
       data.proveedor_unico || [],
       ['organismo','total_contratos','cuits_distintos','monto_total'],
       ['Organismo','Contratos','CUITs Distintos','Monto Total'],
@@ -1437,24 +1568,29 @@ async function cargarMonitor() {
       hhi_fmt: r.hhi,
       interp: r.interpretacion,
     }));
+    state.monitorData.hhi = hhiRows;
     document.getElementById('monitor-hhi').innerHTML = `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Organismo</th><th>HHI</th><th>Contratos</th><th>Concentración</th></tr></thead>
+          <thead><tr><th>Organismo</th><th>HHI</th><th>Contratos</th><th>Concentración</th><th></th></tr></thead>
           <tbody>
-            ${hhiRows.map(r => `
+            ${hhiRows.map((r, idx) => `
               <tr>
                 <td title="${r.organismo}">${(r.organismo||'').substring(0,55)}</td>
                 <td style="font-family:var(--mono);font-weight:700;color:${r.hhi>=2500?'var(--red)':r.hhi>=1500?'var(--gold)':'var(--green)'}">${Math.round(r.hhi)}</td>
                 <td style="text-align:center">${r.contratos}</td>
                 <td>${r.hhi>=2500?'<span class="badge badge-red">Alta</span>':r.hhi>=1500?'<span class="badge badge-gold">Moderada</span>':'<span class="badge badge-green">Competitivo</span>'}</td>
-              </tr>`).join('') || '<tr><td colspan="4"><div class="empty"><div class="empty-icon">📐</div>Sin datos suficientes</div></td></tr>'}
+                <td>${r.hhi>=1500 ? `<button class="btn-ia" style="margin:0;padding:4px 10px;font-size:10px" onclick="explicarAlertaIA('hhi', ${idx})">🤖</button>` : ''}</td>
+              </tr>`).join('') || '<tr><td colspan="5"><div class="empty"><div class="empty-icon">📐</div>Sin datos suficientes</div></td></tr>'}
           </tbody>
         </table>
-      </div>`;
+      </div>
+      <div class="ia-box" id="ia-box-hhi" style="display:none"></div>`;
 
     // Fantasmas
+    state.monitorData.fantasmas = data.fantasmas || [];
     document.getElementById('monitor-fantasmas').innerHTML = renderMonitorTable(
+      'fantasmas',
       data.fantasmas || [],
       ['cuit','nombre','contratos','monto_total'],
       ['CUIT','Nombre','Contratos','Monto Adjudicado'],
@@ -1470,14 +1606,14 @@ async function cargarMonitor() {
   }
 }
 
-function renderMonitorTable(rows, cols, headers, emptyMsg) {
+function renderMonitorTable(tipo, rows, cols, headers, emptyMsg) {
   if (!rows.length) return `<div class="empty"><div class="empty-icon">✅</div>${emptyMsg}</div>`;
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+        <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}<th></th></tr></thead>
         <tbody>
-          ${rows.map(r => `<tr>${cols.map((c,i) => {
+          ${rows.map((r, idx) => `<tr>${cols.map((c,i) => {
             const v = r[c];
             if (i === 0) return `<td title="${v}">${String(v||'—').substring(0,55)}</td>`;
             if (typeof v === 'number' && (c.includes('monto')||c.includes('total_')))
@@ -1485,10 +1621,33 @@ function renderMonitorTable(rows, cols, headers, emptyMsg) {
             if (typeof v === 'number')
               return `<td style="font-family:var(--mono);text-align:center">${v}</td>`;
             return `<td>${v||'—'}</td>`;
-          }).join('')}</tr>`).join('')}
+          }).join('')}<td><button class="btn-ia" style="margin:0;padding:4px 10px;font-size:10px" onclick="explicarAlertaIA('${tipo}', ${idx})">🤖</button></td></tr>`).join('')}
         </tbody>
       </table>
-    </div>`;
+    </div>
+    <div class="ia-box" id="ia-box-${tipo}" style="display:none"></div>`;
+}
+
+async function explicarAlertaIA(tipo, idx) {
+  const fila = (state.monitorData && state.monitorData[tipo] && state.monitorData[tipo][idx]) || null;
+  const box = document.getElementById('ia-box-' + tipo);
+  if (!fila || !box) return;
+  box.style.display = 'block';
+  box.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  try {
+    const resp = await fetch('/api/ia/explicar-alerta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo, fila }),
+    });
+    const data = await resp.json();
+    box.innerHTML = data.disponible
+      ? `<span class="ia-label">🤖 Explicación (Claude)</span>${data.explicacion}`
+      : `<span class="ia-label">IA no disponible</span>${data.motivo || 'Sin detalle.'}`;
+  } catch(e) {
+    box.innerHTML = `<span class="ia-label">Error</span>No se pudo consultar la IA.`;
+  }
 }
 
 // ── ESTADÍSTICAS ──────────────────────────────────────────────────────────────

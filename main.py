@@ -36,6 +36,7 @@ from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from db import init_db, registrar_visita, get_stats
 
@@ -44,8 +45,22 @@ from db import init_db, registrar_visita, get_stats
 # ─────────────────────────────────────────────────────────────────────────────
 
 DATA_DIR      = "/app/data" if os.path.exists("/app") else "data"
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN", "dev-token")
-ADMIN_KEY     = os.getenv("ADMIN_KEY", REFRESH_TOKEN)   # alias para compatibilidad
+
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN", "")
+if not REFRESH_TOKEN:
+    # Antes caía en el default adivinable "dev-token". Si no está configurado
+    # generamos uno aleatorio por proceso y lo logueamos, para que /api/refresh
+    # y /api/stats no queden protegidos por un token público conocido.
+    import secrets as _secrets
+    REFRESH_TOKEN = _secrets.token_urlsafe(24)
+    print(
+        "⚠️ REFRESH_TOKEN no configurado — generé uno temporal para este proceso: "
+        f"{REFRESH_TOKEN}\n"
+        "   Configurá REFRESH_TOKEN en las variables de Railway y en el secret "
+        "de GitHub Actions para que /api/refresh siga funcionando entre reinicios."
+    )
+
+ADMIN_KEY = os.getenv("ADMIN_KEY", REFRESH_TOKEN)   # alias para compatibilidad
 GA_API_SECRET    = os.getenv("GA_API_SECRET", "")
 GA_MEASUREMENT_ID = os.getenv("GA_MEASUREMENT_ID", "")
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -766,3 +781,58 @@ def reload_alias(x_refresh_token: str = Header(None)):
         raise HTTPException(status_code=401, detail="Token inválido")
     _invalidar_cache()
     return {"status": "ok (reload alias)", "timestamp": datetime.now().isoformat()}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API — AGENTIC AI (explicaciones narrativas vía Claude)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PerfilOrganismo(BaseModel):
+    organismo: str = ""
+    total_contratos: int = 0
+    monto_total: float = 0
+    proveedores_unicos: int = 0
+    hhi: float = 0
+    hhi_interpretacion: str = ""
+    red_flags: dict = {}
+    top_proveedores: list = []
+
+
+class PerfilProveedor(BaseModel):
+    cuit: str = ""
+    nombre: str = ""
+    total_contratos: int = 0
+    monto_adjudicado: float = 0
+    monto_cobrado_tgn: float = 0
+    organismos_unicos: int = 0
+    red_flags: dict = {}
+    top_organismos: list = []
+
+
+class AlertaMonitor(BaseModel):
+    tipo: str  # "fragmentacion" | "unico" | "hhi" | "fantasmas"
+    fila: dict = {}
+
+
+@app.get("/api/ia/status")
+def ia_status():
+    from agentic_ai import ia_disponible
+    return {"disponible": ia_disponible()}
+
+
+@app.post("/api/ia/explicar-organismo")
+def ia_explicar_organismo(perfil: PerfilOrganismo):
+    from agentic_ai import explicar_perfil_organismo
+    return explicar_perfil_organismo(perfil.model_dump())
+
+
+@app.post("/api/ia/explicar-proveedor")
+def ia_explicar_proveedor(perfil: PerfilProveedor):
+    from agentic_ai import explicar_perfil_proveedor
+    return explicar_perfil_proveedor(perfil.model_dump())
+
+
+@app.post("/api/ia/explicar-alerta")
+def ia_explicar_alerta(alerta: AlertaMonitor):
+    from agentic_ai import explicar_alerta_monitor
+    return explicar_alerta_monitor(alerta.tipo, alerta.fila)

@@ -1058,7 +1058,11 @@ function nav(seccion, el) {
 // ── FETCH HELPER ─────────────────────────────────────────────────────────────
 async function api(path) {
   const r = await fetch(path);
-  if (!r.ok) throw new Error(r.statusText);
+  if (!r.ok) {
+    let detalle = r.statusText;
+    try { const j = await r.json(); detalle = j.detail || JSON.stringify(j); } catch(_) {}
+    throw new Error(`HTTP ${r.status}: ${detalle}`);
+  }
   return r.json();
 }
 
@@ -1372,7 +1376,7 @@ async function buscarOrganismo() {
         </table>
       </div>`;
   } catch(e) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>Organismo no encontrado. Probá con parte del nombre.</div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>Organismo no encontrado. Probá con parte del nombre.<br><span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${e.message||''}</span></div>`;
   }
 }
 
@@ -1486,7 +1490,7 @@ async function verPerfilProv(cuit) {
         </div>
       </div>`;
   } catch(e) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div>No se pudo cargar el perfil</div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div>No se pudo cargar el perfil<br><span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${e.message||''}</span></div>`;
   }
 }
 

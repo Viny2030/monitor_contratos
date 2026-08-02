@@ -345,66 +345,71 @@ def perfil_organismo(nombre: str):
     if df_org.empty:
         raise HTTPException(404, f"Organismo '{nombre}' no encontrado")
 
-    col_monto  = _col(df_org, ["monto_adjudicado_bora", "monto_adjudicado"])
-    col_cuit   = _col(df_org, ["cuit_proveedor", "cuit"])
-    col_cobro  = _col(df_org, ["cobro_en_tgn"])
-    col_riesgo = _col(df_org, ["nivel_riesgo_licit"])
-    col_fecha  = _col(df_org, ["fecha", "fecha_publicacion"])
+    try:
+        col_monto  = _col(df_org, ["monto_adjudicado_bora", "monto_adjudicado"])
+        col_cuit   = _col(df_org, ["cuit_proveedor", "cuit"])
+        col_cobro  = _col(df_org, ["cobro_en_tgn"])
+        col_riesgo = _col(df_org, ["nivel_riesgo_licit"])
+        col_fecha  = _col(df_org, ["fecha", "fecha_publicacion"])
 
-    df_org["_monto"] = df_org[col_monto].apply(_parsear_monto) if col_monto else 0
+        df_org["_monto"] = df_org[col_monto].apply(_parsear_monto) if col_monto else 0
 
-    # HHI por proveedor
-    hhi = 0.0
-    if col_cuit:
-        por_cuit = df_org.groupby(col_cuit)["_monto"].sum()
-        total_m  = por_cuit.sum()
-        if total_m > 0:
-            hhi = float(((por_cuit / total_m * 100) ** 2).sum())
+        # HHI por proveedor
+        hhi = 0.0
+        if col_cuit:
+            por_cuit = df_org.groupby(col_cuit)["_monto"].sum()
+            total_m  = por_cuit.sum()
+            if total_m > 0:
+                hhi = float(((por_cuit / total_m * 100) ** 2).sum())
 
-    # Top proveedores
-    top_provs = []
-    if col_cuit:
-        col_prov = _col(df_org, ["proveedor_adjudicado", "proveedor_nombre"])
-        grp_p = df_org.groupby(col_cuit).agg(
-            contratos=("_monto", "count"),
-            monto=("_monto", "sum"),
-            nombre=(col_prov, "first") if col_prov else ("_monto", "count"),
-        ).reset_index().sort_values("monto", ascending=False).head(10)
-        top_provs = grp_p.fillna("").to_dict(orient="records")
+        # Top proveedores
+        top_provs = []
+        if col_cuit:
+            col_prov = _col(df_org, ["proveedor_adjudicado", "proveedor_nombre"])
+            grp_p = df_org.groupby(col_cuit).agg(
+                contratos=("_monto", "count"),
+                monto=("_monto", "sum"),
+                nombre=(col_prov, "first") if col_prov else ("_monto", "count"),
+            ).reset_index().sort_values("monto", ascending=False).head(10)
+            top_provs = grp_p.fillna("").to_dict(orient="records")
 
-    # Evolución mensual
-    evol = []
-    if col_fecha:
-        df_org["_mes"] = df_org[col_fecha].dt.to_period("M").astype(str)
-        evol = df_org.groupby("_mes")["_monto"].sum().reset_index()
-        evol.columns = ["mes", "monto"]
-        evol = evol.to_dict(orient="records")
+        # Evolución mensual
+        evol = []
+        if col_fecha:
+            df_org["_mes"] = df_org[col_fecha].dt.to_period("M").astype(str)
+            evol = df_org.groupby("_mes")["_monto"].sum().reset_index()
+            evol.columns = ["mes", "monto"]
+            evol = evol.to_dict(orient="records")
 
-    # Red flags
-    flags = {}
-    if "indicadores_riesgo" in df_org.columns:
-        todos = []
-        for f in df_org["indicadores_riesgo"].dropna():
-            todos.extend([x.strip() for x in str(f).split("|") if "⚠️" in x])
-        from collections import Counter
-        flags = dict(Counter(todos).most_common(10))
+        # Red flags
+        flags = {}
+        if "indicadores_riesgo" in df_org.columns:
+            todos = []
+            for f in df_org["indicadores_riesgo"].dropna():
+                todos.extend([x.strip() for x in str(f).split("|") if "⚠️" in x])
+            from collections import Counter
+            flags = dict(Counter(todos).most_common(10))
 
-    # Serializar fechas para tabla
-    for c in df_org.select_dtypes(include=["datetime64"]).columns:
-        df_org[c] = df_org[c].dt.strftime("%Y-%m-%d")
+        # Serializar fechas para tabla
+        for c in df_org.select_dtypes(include=["datetime64"]).columns:
+            df_org[c] = df_org[c].dt.strftime("%Y-%m-%d")
 
-    return {
-        "organismo":           nombre,
-        "total_contratos":     len(df_org),
-        "monto_total":         round(df_org["_monto"].sum(), 2),
-        "proveedores_unicos":  int(df_org[col_cuit].nunique()) if col_cuit else 0,
-        "hhi":                 round(hhi, 1),
-        "hhi_interpretacion":  "Alta concentración" if hhi >= 2500 else ("Moderada" if hhi >= 1500 else "Competitivo"),
-        "top_proveedores":     top_provs,
-        "evolucion_mensual":   evol,
-        "red_flags":           flags,
-        "contratos":           df_org.fillna("").head(200).to_dict(orient="records"),
-    }
+        return {
+            "organismo":           nombre,
+            "total_contratos":     len(df_org),
+            "monto_total":         round(df_org["_monto"].sum(), 2),
+            "proveedores_unicos":  int(df_org[col_cuit].nunique()) if col_cuit else 0,
+            "hhi":                 round(hhi, 1),
+            "hhi_interpretacion":  "Alta concentración" if hhi >= 2500 else ("Moderada" if hhi >= 1500 else "Competitivo"),
+            "top_proveedores":     top_provs,
+            "evolucion_mensual":   evol,
+            "red_flags":           flags,
+            "contratos":           df_org.fillna("").head(200).to_dict(orient="records"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error interno en perfil_organismo({nombre!r}): {type(e).__name__}: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -483,52 +488,59 @@ def perfil_proveedor(cuit: str):
     if df_prov.empty:
         raise HTTPException(404, f"CUIT {cuit} no encontrado")
 
-    col_monto = _col(df_prov, ["monto_adjudicado_bora", "monto_adjudicado"])
-    col_tgn   = _col(df_prov, ["monto_cobrado_tgn", "monto_pagado_tgn"])
-    col_org   = _col(df_prov, ["organismo_contratante", "organismo"])
-    col_fecha = _col(df_prov, ["fecha", "fecha_publicacion"])
-    col_prov  = _col(df_prov, ["proveedor_adjudicado", "proveedor_nombre"])
+    try:
+        col_monto = _col(df_prov, ["monto_adjudicado_bora", "monto_adjudicado"])
+        col_tgn   = _col(df_prov, ["monto_cobrado_tgn", "monto_pagado_tgn"])
+        col_org   = _col(df_prov, ["organismo_contratante", "organismo"])
+        col_fecha = _col(df_prov, ["fecha", "fecha_publicacion"])
+        col_prov  = _col(df_prov, ["proveedor_adjudicado", "proveedor_nombre"])
 
-    df_prov["_monto"] = df_prov[col_monto].apply(_parsear_monto) if col_monto else 0
-    df_prov["_tgn"]   = df_prov[col_tgn].apply(_parsear_monto)   if col_tgn   else 0
+        df_prov["_monto"] = df_prov[col_monto].apply(_parsear_monto) if col_monto else 0
+        df_prov["_tgn"]   = df_prov[col_tgn].apply(_parsear_monto)   if col_tgn   else 0
 
-    nombre = df_prov[col_prov].dropna().mode().iloc[0] if col_prov and not df_prov[col_prov].dropna().empty else cuit
+        nombre = df_prov[col_prov].dropna().mode().iloc[0] if col_prov and not df_prov[col_prov].dropna().empty else cuit
 
-    # Organismos contratantes
-    top_orgs = []
-    if col_org:
-        top_orgs = df_prov.groupby(col_org)["_monto"].sum().sort_values(ascending=False).head(10).reset_index().to_dict(orient="records")
+        # Organismos contratantes
+        top_orgs = []
+        if col_org:
+            top_orgs = df_prov.groupby(col_org)["_monto"].sum().sort_values(ascending=False).head(10).reset_index().to_dict(orient="records")
 
-    # Evolución mensual
-    evol = []
-    if col_fecha:
-        df_prov["_mes"] = df_prov[col_fecha].dt.to_period("M").astype(str)
-        evol = df_prov.groupby("_mes")["_monto"].sum().reset_index().rename(columns={"_mes": "mes", "_monto": "monto"}).to_dict(orient="records")
+        # Evolución mensual
+        evol = []
+        if col_fecha:
+            df_prov["_mes"] = df_prov[col_fecha].dt.to_period("M").astype(str)
+            evol = df_prov.groupby("_mes")["_monto"].sum().reset_index().rename(columns={"_mes": "mes", "_monto": "monto"}).to_dict(orient="records")
 
-    # Red flags
-    flags = {}
-    if "indicadores_riesgo" in df_prov.columns:
-        from collections import Counter
-        todos = []
-        for f in df_prov["indicadores_riesgo"].dropna():
-            todos.extend([x.strip() for x in str(f).split("|") if "⚠️" in x])
-        flags = dict(Counter(todos).most_common(10))
+        # Red flags
+        flags = {}
+        if "indicadores_riesgo" in df_prov.columns:
+            from collections import Counter
+            todos = []
+            for f in df_prov["indicadores_riesgo"].dropna():
+                todos.extend([x.strip() for x in str(f).split("|") if "⚠️" in x])
+            flags = dict(Counter(todos).most_common(10))
 
-    for c in df_prov.select_dtypes(include=["datetime64"]).columns:
-        df_prov[c] = df_prov[c].dt.strftime("%Y-%m-%d")
+        for c in df_prov.select_dtypes(include=["datetime64"]).columns:
+            df_prov[c] = df_prov[c].dt.strftime("%Y-%m-%d")
 
-    return {
-        "cuit":            cuit,
-        "nombre":          nombre,
-        "total_contratos": len(df_prov),
-        "monto_adjudicado": round(df_prov["_monto"].sum(), 2),
-        "monto_cobrado_tgn": round(df_prov["_tgn"].sum(), 2),
-        "organismos_unicos": int(df_prov[col_org].nunique()) if col_org else 0,
-        "top_organismos":  top_orgs,
-        "evolucion_mensual": evol,
-        "red_flags":       flags,
-        "contratos":       df_prov.fillna("").head(200).to_dict(orient="records"),
-    }
+        return {
+            "cuit":            cuit,
+            "nombre":          nombre,
+            "total_contratos": len(df_prov),
+            "monto_adjudicado": round(df_prov["_monto"].sum(), 2),
+            "monto_cobrado_tgn": round(df_prov["_tgn"].sum(), 2),
+            "organismos_unicos": int(df_prov[col_org].nunique()) if col_org else 0,
+            "top_organismos":  top_orgs,
+            "evolucion_mensual": evol,
+            "red_flags":       flags,
+            "contratos":       df_prov.fillna("").head(200).to_dict(orient="records"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Diagnóstico temporal: exponemos el error real en vez de un 500 opaco,
+        # para poder detectar la causa exacta del "no se pudo cargar el perfil".
+        raise HTTPException(500, f"Error interno en perfil_proveedor({cuit!r}): {type(e).__name__}: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

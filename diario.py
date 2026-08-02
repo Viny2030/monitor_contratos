@@ -20,6 +20,7 @@ import os
 import re
 import time
 import logging
+import unicodedata
 from datetime import datetime, date
 
 import requests
@@ -109,17 +110,52 @@ def _get(url: str, *, verify_ssl: bool = False, **kwargs) -> requests.Response |
 
 
 def _normalizar_cuit(texto: str) -> str:
-    """Extrae y normaliza CUIT/CUIL de un texto libre."""
-    # Formato XX-XXXXXXXX-X
-    m = re.search(r'\b(\d{2})-(\d{7,8})-(\d{1})\b', str(texto))
+    """Extrae y normaliza CUIT/CUIL de un texto libre.
+
+    pdfminer suele insertar espacios extra alrededor de guiones y dígitos por
+    el kerning del PDF (ej: "30 - 52535648 -1" en vez de "30-52535648-1").
+    Antes esta función buscaba el patrón exacto sin tolerar esos espacios y
+    perdía CUITs que sí estaban en el texto — de ahí que muchas filas queden
+    "Sin CUIT" aunque el aviso real sí lo publique.
+    """
+    texto = re.sub(r"\s+", " ", str(texto))
+    # Formato XX-XXXXXXXX-X (con o sin espacios sueltos alrededor de los guiones)
+    m = re.search(r'\b(\d{2})\s*-\s*(\d{7,8})\s*-\s*(\d{1})\b', texto)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-    # Sin guiones (11 dígitos)
-    m = re.search(r'\b(20|23|24|27|30|33|34)\d{9}\b', str(texto))
+    # Sin guiones (11 dígitos, puede tener espacios entre grupos)
+    m = re.search(r'\b(20|23|24|27|30|33|34)\s*(\d{6})\s*(\d{3})\s*(\d{1})\b', texto)
     if m:
-        raw = m.group(0)
-        return f"{raw[:2]}-{raw[2:-1]}-{raw[-1]}"
+        return f"{m.group(1)}-{m.group(2)}{m.group(3)}-{m.group(4)}"
     return ""
+
+
+def _sin_acentos(texto: str) -> str:
+    t = unicodedata.normalize("NFD", texto.lower())
+    return "".join(c for c in t if unicodedata.category(c) != "Mn")
+
+
+# Frases estándar de BORA que indican que la licitación fue anulada/cancelada
+# y por lo tanto NUNCA hubo proveedor adjudicado — no es un fallo de extracción,
+# es que no hay nada que extraer. Sin esto, estos casos se contaban como
+# "Sin CUIT" (sugiriendo un problema de datos) cuando en realidad el proceso
+# fue dado de baja administrativamente.
+_PATRONES_CANCELACION = [
+    _sin_acentos(p) for p in [
+        "dejase sin efecto", "déjase sin efecto", "se deja sin efecto",
+        "dejar sin efecto", "anulase", "anúlase", "se anula", "revocase",
+        "revócase", "declarase desierta", "declárase desierta",
+        "declarase fracasada", "declárase fracasada",
+    ]
+]
+
+
+def _es_cancelada(texto: str) -> bool:
+    """Detecta si el aviso declara la licitación anulada/desierta/fracasada."""
+    if not texto:
+        return False
+    t = _sin_acentos(re.sub(r"\s+", " ", texto))
+    return any(p in t for p in _PATRONES_CANCELACION)
 
 
 def _normalizar_monto(texto: str) -> float:
@@ -307,6 +343,7 @@ def extraer_bora(hoy: date | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
         cuit      = _normalizar_cuit(texto)
         proveedor = _extraer_proveedor(texto)
         monto     = _extraer_monto_bora(texto)
+        cancelada = _es_cancelada(texto)
 
         adj_detalle.append({
             "fecha_extraccion":      hoy.isoformat(),
@@ -318,10 +355,16 @@ def extraer_bora(hoy: date | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
             "proveedor_adjudicado":  proveedor,
             "cuit_proveedor":        cuit,
             "monto_adjudicado_bora": monto,
+            "cancelada":             cancelada,
             "texto_muestra":         texto[:300] if texto else "SIN TEXTO",
             "fuente":                "BORA Adjudicaciones",
         })
-        estado = f"✅ {cuit}" if cuit else "⚠️ sin CUIT"
+        if cancelada:
+            estado = "🚫 cancelada/dejada sin efecto"
+        elif cuit:
+            estado = f"✅ {cuit}"
+        else:
+            estado = "⚠️ sin CUIT"
         log.info(f"    {estado} | {proveedor[:45] or '—'} | {monto}")
 
     con_cuit = sum(1 for d in adj_detalle if d["cuit_proveedor"])
@@ -702,8 +745,13 @@ def cruzar_fuentes(
         en_comprar = bool(match_comprar)
         en_tgn     = bool(tgn_match)
         tiene_cuit = bool(cuit_adj)
+        cancelada  = bool(adj.get("cancelada", False))
 
-        if tiene_cuit and en_comprar and en_tgn:
+        if cancelada:
+            # No es un fallo de extracción — el aviso declara la licitación
+            # anulada/desierta, nunca hubo proveedor que adjudicar.
+            alerta = "🚫 CANCELADA / DEJADA SIN EFECTO"
+        elif tiene_cuit and en_comprar and en_tgn:
             alerta = "🚨 FLUJO COMPLETO: BORA→COMPRAR→TGN"
         elif tiene_cuit and en_tgn:
             alerta = "🔶 BORA + TGN (cobró)"
@@ -740,6 +788,7 @@ def cruzar_fuentes(
             "monto_pagado_tgn":       tgn_match.get("monto_pagado", ""),
             "monto_devengado_tgn":    tgn_match.get("monto_devengado", ""),
             # ── Trazabilidad ────────────────────────────────────────────────
+            "cancelada":              cancelada,
             "alerta":                 alerta,
         })
 
@@ -752,6 +801,7 @@ def cruzar_fuentes(
         "🔷 BORA + COMPRAR":                   2,
         "✅ ADJUDICADO (sin cruce aún)":        3,
         "⚠️ SIN CUIT EXTRAÍDO":                4,
+        "🚫 CANCELADA / DEJADA SIN EFECTO":    5,
     }
     df["_orden"] = df["alerta"].map(orden).fillna(9)
     df = df.sort_values("_orden").drop(columns=["_orden"]).reset_index(drop=True)
@@ -778,6 +828,14 @@ def _agregar_riesgo(df: pd.DataFrame) -> pd.DataFrame:
     for _, fila in df.iterrows():
         flags = []
         score = 0
+
+        # Licitación cancelada/dejada sin efecto: no hay nada irregular que
+        # señalar (no hubo proveedor ni monto porque el proceso se anuló),
+        # así que no le aplicamos el resto de los indicadores de riesgo.
+        if fila.get("cancelada"):
+            indicadores_col.append("ℹ️ Licitación cancelada / dejada sin efecto")
+            score_col.append(0)
+            continue
 
         monto = _normalizar_monto(fila.get("monto_adjudicado_bora", ""))
         tipo  = str(fila.get("tipo_procedimiento", "")).lower()

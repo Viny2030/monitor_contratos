@@ -68,8 +68,10 @@ CONTRAT_OCDS_ID = "jgm-contrataciones-obras-ocds"  # dataset id completo
 CKAN_BASE = "https://datos.gob.ar/api/3/action/datastore_search"
 CKAN_PKG  = "https://datos.gob.ar/api/3/action/package_show"
 
-# TGN token (el mismo que ya usa diario.py)
-TGN_TOKEN_DEFAULT = "707cb8c8-83e6-4c4d-a202-3e49c14eda89"
+# TGN token (el mismo que ya usa diario.py) — configurar vía variable de
+# entorno TGN_TOKEN. El token viejo hardcodeado acá quedó expuesto en el
+# repo público y fue rotado; no volver a poner el valor real en el código.
+TGN_TOKEN_DEFAULT = ""
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -435,6 +437,10 @@ def obtener_tgn_ejecucion_api(anio=None, jurisdiccion=None, token=None):
     """
     anio = anio or datetime.now().year
     token = token or os.environ.get("TGN_TOKEN", TGN_TOKEN_DEFAULT)
+
+    if not token:
+        print("  ⚠ TGN_TOKEN no configurado — omitiendo TGN /ejecucion")
+        return pd.DataFrame()
 
     print(f"💰 TGN /ejecucion API — ejercicio {anio}...")
 

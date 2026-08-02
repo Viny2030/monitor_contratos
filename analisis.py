@@ -166,6 +166,27 @@ def aplicar_matriz(df: pd.DataFrame, col_texto: str = "detalle") -> pd.DataFrame
     return df
 
 
+def analizar_boletin(df: pd.DataFrame, col_texto: str = "detalle"):
+    """
+    Wrapper de compatibilidad para test_auditoria.py (stress test de sesgo
+    demográfico). Aplica la Matriz XAI Monteverde vía aplicar_matriz() y
+    devuelve la firma histórica de 3 valores (df_procesado, resumen, alertas).
+
+    Retorna
+    -------
+    df_procesado : DataFrame con tipo_decision/transferencia/nivel_riesgo
+    resumen       : dict con conteo de avisos por tipo_decision
+    alertas       : DataFrame filtrado a nivel_riesgo == "Alto"
+    """
+    df_procesado = aplicar_matriz(df, col_texto=col_texto)
+    df_procesado["tipo_decision"] = df_procesado["tipo_decision"].replace(
+        "Sin clasificar", "No identificado"
+    )
+    resumen = df_procesado["tipo_decision"].value_counts().to_dict()
+    alertas = df_procesado[df_procesado["nivel_riesgo"] == "Alto"].copy()
+    return df_procesado, resumen, alertas
+
+
 def calcular_hhi(serie_montos: pd.Series) -> float:
     """
     Índice Herfindahl-Hirschman de concentración.

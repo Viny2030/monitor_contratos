@@ -26,4 +26,3 @@ jobs:
       - name: Correr tests
         run: |
           pytest test_auditoria.py -v
-        continue-on-error: true

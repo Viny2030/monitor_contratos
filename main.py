@@ -498,9 +498,9 @@ def perfil_proveedor(cuit: str):
         if not col_cuit:
             raise HTTPException(404, "Sin columna CUIT")
 
-        cuit_norm = re.sub(r"[^\d]", "", cuit)
-        df_prov = df[df[col_cuit].astype(str).apply(
-            lambda x: re.sub(r"[^\d]", "", x) == cuit_norm
+        cuit_norm = re.sub(r"[^\d]", "", str(cuit))
+        df_prov = df[df[col_cuit].apply(
+            lambda x: re.sub(r"[^\d]", "", str(x)) == cuit_norm
         )].copy()
 
         if df_prov.empty:

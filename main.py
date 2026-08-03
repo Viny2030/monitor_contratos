@@ -34,7 +34,7 @@ import httpx
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -90,6 +90,18 @@ app.add_middleware(
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.exception_handler(Exception)
+async def _handler_errores_no_capturados(request: Request, exc: Exception):
+    # Cualquier excepción que se nos escape de un endpoint (por ej. antes de
+    # entrar a un try/except propio) caía en el handler default de Starlette,
+    # que devuelve texto plano sin cuerpo JSON — el frontend lo mostraba como
+    # "HTTP 500:" vacío. Acá siempre devolvemos JSON con el detalle real.
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}", "path": str(request.url.path)},
+    )
 # ─────────────────────────────────────────────────────────────────────────────
 # CACHE Y HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -131,6 +143,11 @@ def _cargar_df() -> pd.DataFrame:
     if not dfs:
         return pd.DataFrame()
     df_total = pd.concat(dfs, ignore_index=True)
+    # Los reportes van de distintos meses y alguno puede tener una columna
+    # duplicada (mismo nombre repetido). Si eso pasa, df_total[col] deja de
+    # ser una Series y rompe cualquier .astype()/.apply() más abajo (500
+    # opaco). Nos quedamos con la primera ocurrencia de cada nombre.
+    df_total = df_total.loc[:, ~df_total.columns.duplicated()]
     # Normalizar columna fecha
     for col in ["fecha", "fecha_publicacion", "fecha_extraccion"]:
         if col in df_total.columns:
@@ -333,19 +350,19 @@ def organismos(top: int = Query(20, le=100)):
 @app.get("/api/organismos/{nombre}")
 def perfil_organismo(nombre: str):
     registrar_visita("perfil_organismo")
-    df = _cargar_df()
-    if df.empty:
-        raise HTTPException(404, "Sin datos")
-
-    col_org = _col(df, ["organismo_contratante", "organismo"])
-    if not col_org:
-        raise HTTPException(404, "Columna organismo no encontrada")
-
-    df_org = df[df[col_org].str.contains(nombre, case=False, na=False)].copy()
-    if df_org.empty:
-        raise HTTPException(404, f"Organismo '{nombre}' no encontrado")
-
     try:
+        df = _cargar_df()
+        if df.empty:
+            raise HTTPException(404, "Sin datos")
+
+        col_org = _col(df, ["organismo_contratante", "organismo"])
+        if not col_org:
+            raise HTTPException(404, "Columna organismo no encontrada")
+
+        df_org = df[df[col_org].str.contains(nombre, case=False, na=False)].copy()
+        if df_org.empty:
+            raise HTTPException(404, f"Organismo '{nombre}' no encontrado")
+
         col_monto  = _col(df_org, ["monto_adjudicado_bora", "monto_adjudicado"])
         col_cuit   = _col(df_org, ["cuit_proveedor", "cuit"])
         col_cobro  = _col(df_org, ["cobro_en_tgn"])
@@ -472,23 +489,23 @@ def proveedores(
 @app.get("/api/proveedores/{cuit}")
 def perfil_proveedor(cuit: str):
     registrar_visita("perfil_proveedor")
-    df = _cargar_df()
-    if df.empty:
-        raise HTTPException(404, "Sin datos")
-
-    col_cuit = _col(df, ["cuit_proveedor", "cuit"])
-    if not col_cuit:
-        raise HTTPException(404, "Sin columna CUIT")
-
-    cuit_norm = re.sub(r"[^\d]", "", cuit)
-    df_prov = df[df[col_cuit].astype(str).apply(
-        lambda x: re.sub(r"[^\d]", "", x) == cuit_norm
-    )].copy()
-
-    if df_prov.empty:
-        raise HTTPException(404, f"CUIT {cuit} no encontrado")
-
     try:
+        df = _cargar_df()
+        if df.empty:
+            raise HTTPException(404, "Sin datos")
+
+        col_cuit = _col(df, ["cuit_proveedor", "cuit"])
+        if not col_cuit:
+            raise HTTPException(404, "Sin columna CUIT")
+
+        cuit_norm = re.sub(r"[^\d]", "", cuit)
+        df_prov = df[df[col_cuit].astype(str).apply(
+            lambda x: re.sub(r"[^\d]", "", x) == cuit_norm
+        )].copy()
+
+        if df_prov.empty:
+            raise HTTPException(404, f"CUIT {cuit} no encontrado")
+
         col_monto = _col(df_prov, ["monto_adjudicado_bora", "monto_adjudicado"])
         col_tgn   = _col(df_prov, ["monto_cobrado_tgn", "monto_pagado_tgn"])
         col_org   = _col(df_prov, ["organismo_contratante", "organismo"])

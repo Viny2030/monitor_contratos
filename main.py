@@ -168,8 +168,53 @@ def _col(df, opciones):
 
 
 def _parsear_monto(v) -> float:
+    """
+    Parsea montos que llegan en dos formatos distintos según la columna
+    de origen:
+      - texto crudo scrapeado de BORA, formato argentino: '.' = separador
+        de miles, ',' = separador decimal (ej. "$419.039.352." o
+        "$93.842.991,30", a veces con un '.' final suelto como artefacto
+        del scraping).
+      - números ya parseados por pandas/Excel (monto_comprar, monto_pagado_tgn,
+        monto_devengado_tgn), que llegan como float/int de Python y cuyo
+        str() usa '.' como separador DECIMAL (ej. "460800.0").
+
+    BUG ANTERIOR: se hacía `.replace(",", ".")` y después se dejaba pasar
+    cualquier '.', así que un monto con separador de miles como
+    "$93.842.991,30" quedaba "93.842.991.30" (3 puntos) y `float()` tiraba
+    ValueError → se devolvía 0.0 silenciosamente. Como casi todos los montos
+    reales superan los $1.000, casi toda la plata desaparecía del total
+    (de ahí el "$4K" para 888 contratos en vez de miles de millones).
+    """
+    if v is None:
+        return 0.0
+    s = str(v).strip()
+    if not s:
+        return 0.0
+    s = re.sub(r"[^\d.,]", "", s)
+    if not s:
+        return 0.0
+    s = s.rstrip(".,")  # artefacto de scraping: punto/coma final suelto
+    if not s:
+        return 0.0
+    if "," in s:
+        # Formato argentino con decimales explícitos: '.' miles, ',' decimal.
+        s = s.replace(".", "").replace(",", ".")
+    elif s.count(".") > 1:
+        # Varios puntos sin coma: todos son separadores de miles.
+        s = s.replace(".", "")
+    elif s.count(".") == 1:
+        # Un solo punto sin coma: ambiguo entre separador de miles
+        # ("58.782" = 58782) y decimal ("460800.0" = 460800.0, ya viene
+        # de un float de pandas). Un grupo de exactamente 3 dígitos
+        # después del punto es el patrón de miles argentino; cualquier
+        # otra longitud (típicamente .0, .00 o decimales largos de un
+        # float ya numérico) se deja como parte decimal.
+        entero, frac = s.split(".")
+        if len(frac) == 3 and entero:
+            s = entero + frac
     try:
-        return float(re.sub(r"[^\d.]", "", str(v).replace(",", ".")))
+        return float(s)
     except Exception:
         return 0.0
 

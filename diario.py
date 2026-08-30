@@ -773,6 +773,17 @@ def cruzar_fuentes(
             "proveedor_adjudicado":   adj.get("proveedor_adjudicado", ""),
             "cuit_proveedor":         cuit_adj,
             "monto_adjudicado_bora":  adj.get("monto_adjudicado_bora", ""),
+            # ── Clasificación Monteverde (Matriz XAI) ──────────────────────────
+            # BUG: aplicar_matriz() en el paso 2 de main() ya agrega estas
+            # columnas a df_adj, pero acá se perdían porque este dict se arma
+            # a mano seleccionando campos explícitos y nunca las incluía —
+            # de ahí que "Escenarios" quedara siempre en "Sin clasificaciones
+            # aún" pese a que la clasificación sí se calculaba. guardar_excels()
+            # ya esperaba estas 3 columnas en df_cruce (ver cols_alerta de la
+            # hoja "⚠️ Red Flags"), así que solo hacía falta no descartarlas acá.
+            "tipo_decision":          adj.get("tipo_decision", "Sin clasificar"),
+            "transferencia":          adj.get("transferencia", "—"),
+            "indice_fenomeno":        adj.get("indice_fenomeno", 0),
             # ── Comprar ─────────────────────────────────────────────────────
             "en_comprar":             "✅ SÍ" if en_comprar else "❌ NO",
             "nro_proceso_comprar":    cm.get("nro_proceso", ""),

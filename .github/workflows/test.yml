@@ -21,7 +21,7 @@ jobs:
 
       - name: Instalar dependencias
         run: |
-          pip install pytest pandas openpyxl fastapi httpx asyncpg pydantic requests beautifulsoup4 lxml pdfminer.six python-dotenv
+          pip install -r requirements.txt pytest httpx
 
       - name: Correr tests
         run: |

@@ -21,9 +21,10 @@ Endpoints API:
 from dotenv import load_dotenv
 load_dotenv()
 
-MEACI_URL = "https://mapatransparencia-production.up.railway.app"
 import glob
 import os
+# Antes apuntaba a mapatransparencia-production y a /api/cruce-cuit, que no existen (404).
+MEACI_URL = os.getenv("MEACI_URL", "https://meaci-production.up.railway.app").rstrip("/")
 import re
 import unicodedata
 from collections import defaultdict
@@ -134,8 +135,12 @@ def _cargar_df() -> pd.DataFrame:
             xl = pd.ExcelFile(archivo)
             hoja = next((h for h in hojas_ok if h in xl.sheet_names), None)
             if not hoja:
-                hoja = xl.sheet_names[0]
-            df = xl.parse(hoja).fillna("")
+                # Antes se tomaba la primera hoja del archivo: en días sin
+                # adjudicaciones eso metía en el tablero las licitaciones BORA o
+                # las 22.281 adjudicaciones de COMPR.AR 2020 (fallback histórico),
+                # que eran el 96% de los "23.368 contratos".
+                continue
+            df = xl.parse(hoja, dtype={"cuit_proveedor": str}).fillna("")
             df["_archivo"] = os.path.basename(archivo)
             dfs.append(df)
         except Exception:
@@ -148,6 +153,16 @@ def _cargar_df() -> pd.DataFrame:
     # ser una Series y rompe cualquier .astype()/.apply() más abajo (500
     # opaco). Nos quedamos con la primera ocurrencia de cada nombre.
     df_total = df_total.loc[:, ~df_total.columns.duplicated()]
+    # Un mismo aviso puede aparecer en dos reportes (en feriados se guardaba la
+    # edición anterior): se cuenta una sola vez.
+    if "link_bora" in df_total.columns:
+        con_link = df_total["link_bora"].astype(str).str.strip() != ""
+        df_total = pd.concat([
+            df_total[con_link].drop_duplicates(subset=["link_bora"], keep="last"),
+            df_total[~con_link],
+        ], ignore_index=True)
+    if "cuit_proveedor" in df_total.columns:
+        df_total["cuit_proveedor"] = df_total["cuit_proveedor"].astype(str).str.replace(r"\.0$", "", regex=True).replace("nan", "")
     # Normalizar columna fecha
     for col in ["fecha", "fecha_publicacion", "fecha_extraccion"]:
         if col in df_total.columns:
@@ -492,8 +507,12 @@ def proveedores(
     col_cuit   = _col(df, ["cuit_proveedor", "cuit"])
     col_prov   = _col(df, ["proveedor_adjudicado", "proveedor_nombre", "beneficiario_tgn"])
     col_monto  = _col(df, ["monto_adjudicado_bora", "monto_adjudicado"])
-    col_tgn    = _col(df, ["monto_cobrado_tgn", "monto_pagado_tgn"])
+    # monto_pagado_tgn es lo pagado por el ORGANISMO (no por proveedor): no se
+    # atribuye a cada proveedor. Se mantiene la clave "monto_tgn" en 0 por compatibilidad.
+    col_tgn    = None
     col_riesgo = _col(df, ["score_riesgo_licit", "indice_riesgo_licit"])
+    if orden == "monto_tgn":
+        orden = "monto_adj"
 
     if not col_cuit:
         return {"data": []}
@@ -552,7 +571,7 @@ def perfil_proveedor(cuit: str):
             raise HTTPException(404, f"CUIT {cuit} no encontrado")
 
         col_monto = _col(df_prov, ["monto_adjudicado_bora", "monto_adjudicado"])
-        col_tgn   = _col(df_prov, ["monto_cobrado_tgn", "monto_pagado_tgn"])
+        col_tgn   = None  # el monto TGN es del organismo, no de este proveedor
         col_org   = _col(df_prov, ["organismo_contratante", "organismo"])
         col_fecha = _col(df_prov, ["fecha", "fecha_publicacion"])
         col_prov  = _col(df_prov, ["proveedor_adjudicado", "proveedor_nombre"])
@@ -629,7 +648,7 @@ def monitor():
     # Organismos con muchos contratos de bajo monto (posible división para evadir umbral)
     fragmentacion = []
     if col_org:
-        UMBRAL = 10_000_000
+        UMBRAL = 1_000 * float(os.getenv("MODULO_ARS", "50000"))  # tope compulsa abreviada (1.000 módulos)
         df_bajo = df[df["_monto"].between(1, UMBRAL)]
         grp_f = df_bajo.groupby(col_org).agg(
             contratos=("_monto", "count"),
@@ -673,8 +692,11 @@ def monitor():
         hhi_ranking = sorted(resultados_hhi, key=lambda x: x["hhi"], reverse=True)[:20]
 
     # ── Fantasmas (adjudicados sin cobro TGN) ─────────────────────────────────
+    # DESACTIVADO: la API de TGN no informa el CUIT del beneficiario, así que
+    # "sin cobro" nunca se puede verificar por proveedor; la lista mostraba como
+    # posibles "fantasmas" a cualquier proveedor con CUIT.
     fantasmas = []
-    if col_cuit and col_cobro:
+    if False and col_cuit and col_cobro:
         col_prov = _col(df, ["proveedor_adjudicado", "proveedor_nombre"])
         df_con_cuit = df[df[col_cuit].astype(str).str.strip().astype(bool)]
         df_sin_cobro = df_con_cuit[df_con_cuit[col_cobro] == "❌ NO"]
@@ -692,6 +714,7 @@ def monitor():
         "proveedor_unico": proveedor_unico,
         "hhi":             hhi_ranking,
         "fantasmas":       fantasmas,
+        "fantasmas_nota":  "No disponible: la Tesorería no publica el CUIT del beneficiario, así que no se puede verificar cobro por proveedor.",
     }
 
 
@@ -754,6 +777,8 @@ def licitaciones_datos(fecha: str | None = Query(None)):
         df_c = xl.parse(hoja_comp).fillna("")
         for c in df_c.select_dtypes(include=["datetime64"]).columns:
             df_c[c] = df_c[c].dt.strftime("%Y-%m-%d")
+        if "fuente_comprar" in df_c.columns:  # excluir el CSV histórico 2020 guardado como fallback
+            df_c = df_c[~df_c["fuente_comprar"].astype(str).str.contains("histórico", na=False)]
         renames_c = {"organismo_contratante": "organismo", "tipo_procedimiento": "tipo"}
         df_c = df_c.rename(columns={k: v for k, v in renames_c.items() if k in df_c.columns})
         comprar = df_c.to_dict(orient="records")
@@ -823,29 +848,28 @@ def _token_valido(t):
 async def cruce_cuit(cuit: str):
     """Consulta si un CUIT está sancionado internacionalmente (vía MEACI)."""
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get(f"{MEACI_URL}/api/cruce-cuit", params={"cuit": cuit})
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(f"{MEACI_URL}/api/empresas/cuit/{cuit}")
             if r.status_code == 200:
-                return r.json()
-            return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "detalle": "sin datos"}
+                return {"cuit": cuit, "sancionado": True, "fuente": "MEACI", "empresa": r.json()}
+            if r.status_code == 404:
+                return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "detalle": "sin coincidencias"}
+            return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "error": f"MEACI respondió {r.status_code}"}
     except Exception as e:
         return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "error": str(e)}
 
 @app.get("/api/cruce-cuits-bulk")
 async def cruce_cuits_bulk(cuits: str):
     """Consulta múltiples CUITs separados por coma. Retorna solo los sancionados."""
-    lista = [c.strip() for c in cuits.split(",") if c.strip()]
+    lista = [c.strip() for c in cuits.split(",") if c.strip()][:50]
     alertas = {}
-    async with httpx.AsyncClient(timeout=8) as client:
-        for cuit in lista[:50]:
-            try:
-                r = await client.get(f"{MEACI_URL}/api/cruce-cuit", params={"cuit": cuit})
-                if r.status_code == 200:
-                    data = r.json()
-                    if data.get("sancionado"):
-                        alertas[cuit] = data
-            except Exception:
-                pass
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{MEACI_URL}/api/cruce-cuits-bulk", params={"cuits": ",".join(lista)})
+            if r.status_code == 200:
+                alertas = r.json().get("alertas", {})
+    except Exception:
+        pass
     return {"alertas": alertas, "total_consultados": len(lista), "total_alertas": len(alertas)}
 
 @app.post("/api/reload")
@@ -888,25 +912,71 @@ class AlertaMonitor(BaseModel):
     fila: dict = {}
 
 
+# Límite de uso de la IA (cada consulta tiene costo): 3 por visitante (IP) por día
+# y un tope diario total. Solo cuenta si la IA respondió.
+import hashlib as _hashlib
+import threading as _threading
+from datetime import timezone as _tz
+IA_LIMITE_POR_IP = int(os.getenv("IA_LIMITE_POR_IP", "3"))
+IA_LIMITE_GLOBAL = int(os.getenv("IA_LIMITE_GLOBAL_DIA", "30"))
+_ia_usos = {"dia": None, "por_ip": {}, "total": 0}
+_ia_lock = _threading.Lock()
+
+
+def _ia_clave(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "")) or "?"
+    return _hashlib.sha256(ip.encode()).hexdigest()[:16]
+
+
+def _ia_con_limite(request: Request, fn):
+    from agentic_ai import ia_disponible
+    if not ia_disponible():
+        return fn()
+    hoy = datetime.now(_tz.utc).date()
+    clave = _ia_clave(request)
+    with _ia_lock:
+        if _ia_usos["dia"] != hoy:
+            _ia_usos.update({"dia": hoy, "por_ip": {}, "total": 0})
+        usados = _ia_usos["por_ip"].get(clave, 0)
+        if usados >= IA_LIMITE_POR_IP or _ia_usos["total"] >= IA_LIMITE_GLOBAL:
+            return JSONResponse(status_code=429, content={
+                "disponible": False,
+                "motivo": f"Alcanzaste el límite de {IA_LIMITE_POR_IP} consultas con IA por día. Probá mañana.",
+            })
+        _ia_usos["por_ip"][clave] = usados + 1
+        _ia_usos["total"] += 1
+    resultado = fn()
+    if not resultado.get("disponible"):
+        with _ia_lock:
+            _ia_usos["por_ip"][clave] = max(_ia_usos["por_ip"].get(clave, 1) - 1, 0)
+            _ia_usos["total"] = max(_ia_usos["total"] - 1, 0)
+    else:
+        resultado["usos_restantes_hoy"] = IA_LIMITE_POR_IP - usados - 1
+    return resultado
+
+
 @app.get("/api/ia/status")
 def ia_status():
     from agentic_ai import ia_disponible
-    return {"disponible": ia_disponible()}
+    return {"disponible": ia_disponible(), "limite_por_dia": IA_LIMITE_POR_IP}
 
 
 @app.post("/api/ia/explicar-organismo")
-def ia_explicar_organismo(perfil: PerfilOrganismo):
+def ia_explicar_organismo(perfil: PerfilOrganismo, request: Request):
     from agentic_ai import explicar_perfil_organismo
-    return explicar_perfil_organismo(perfil.model_dump())
+    return _ia_con_limite(request, lambda: explicar_perfil_organismo(perfil.model_dump()))
 
 
 @app.post("/api/ia/explicar-proveedor")
-def ia_explicar_proveedor(perfil: PerfilProveedor):
+def ia_explicar_proveedor(perfil: PerfilProveedor, request: Request):
     from agentic_ai import explicar_perfil_proveedor
-    return explicar_perfil_proveedor(perfil.model_dump())
+    return _ia_con_limite(request, lambda: explicar_perfil_proveedor(perfil.model_dump()))
 
 
 @app.post("/api/ia/explicar-alerta")
-def ia_explicar_alerta(alerta: AlertaMonitor):
+def ia_explicar_alerta(alerta: AlertaMonitor, request: Request):
     from agentic_ai import explicar_alerta_monitor
-    return explicar_alerta_monitor(alerta.tipo, alerta.fila)
+    if alerta.tipo == "fantasmas":
+        return {"disponible": False, "motivo": "La alerta de 'fantasmas' está desactivada (TGN no informa CUIT)."}
+    return _ia_con_limite(request, lambda: explicar_alerta_monitor(alerta.tipo, alerta.fila))

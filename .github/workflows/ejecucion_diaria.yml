@@ -3,6 +3,7 @@ name: Monitor Diario Integrado BORA + Comprar + TGN
 on:
   schedule:
     - cron: '0 12 * * 1-5'  # 09:00 Argentina (UTC-3), lunes a viernes
+    - cron: '0 15 * * 1-5'  # 12:00 Argentina: reintento si el BORA no respondió (si ya hay reporte no hace nada)
   workflow_dispatch:          # permite ejecución manual desde GitHub
 
 permissions:

@@ -774,12 +774,11 @@
     <div id="sec-proveedores" class="section">
       <div class="section-header">
         <div class="section-title">🏢 <span>Proveedores</span></div>
-        <div class="section-sub">QUIÉN COBRÓ DEL ESTADO (TGN) · DIFERENCIAL ÚNICO EN ARGENTINA</div>
+        <div class="section-sub">ADJUDICACIONES DEL BORA POR PROVEEDOR (CUIT)</div>
       </div>
       <div class="filters">
         <input id="prov-busqueda" type="text" placeholder="CUIT o nombre de empresa…">
         <select id="prov-orden">
-          <option value="monto_tgn">Mayor cobro TGN</option>
           <option value="monto_adj">Mayor adjudicación</option>
           <option value="contratos">Más contratos</option>
           <option value="riesgo">Mayor riesgo</option>
@@ -794,7 +793,7 @@
               <th>Nombre</th>
               <th>Contratos</th>
               <th>Monto Adjudicado</th>
-              <th>Cobrado TGN</th>
+              <th title="La Tesorería no informa pagos por CUIT">Cobrado TGN</th>
               <th>Riesgo Prom.</th>
               <th>Perfil</th>
             </tr>
@@ -817,7 +816,7 @@
         <button class="tab-btn active" onclick="tabMonitor('fragmentacion',this)">🔪 Fragmentación</button>
         <button class="tab-btn" onclick="tabMonitor('unico',this)">🔒 Proveedor Único</button>
         <button class="tab-btn" onclick="tabMonitor('hhi',this)">📐 HHI</button>
-        <button class="tab-btn" onclick="tabMonitor('fantasmas',this)">👻 Sin cobro TGN</button>
+        <button class="tab-btn" onclick="tabMonitor('fantasmas',this)">👻 Sin cobro TGN (no disponible)</button>
       </div>
       <div id="monitor-fragmentacion" class="tab-panel active">
         <div class="loading"><div class="spinner"></div> Cargando…</div>
@@ -902,7 +901,7 @@
           <li><strong>Fragmentación</strong>: organismos con múltiples contratos de bajo monto, posiblemente divididos para evitar el umbral de licitación pública ($10M ARS).</li>
           <li><strong>Proveedor Único</strong>: organismos que adjudican siempre al mismo CUIT — señal de captura.</li>
           <li><strong>HHI</strong>: Índice Herfindahl-Hirschman de concentración de mercado por organismo.</li>
-          <li><strong>Sin cobro TGN</strong>: proveedores adjudicados que no registran cobro en TGN ("fantasmas").</li>
+          <li><strong>Sin cobro TGN</strong>: desactivado — la Tesorería publica pagos por organismo, no por CUIT, así que no se puede saber si un proveedor cobró.</li>
         </ul>
 
         <h2>Referencia académica</h2>
@@ -1109,7 +1108,7 @@ async function cargarInicio() {
       { val: (res.riesgo_alto||0).toLocaleString(),   lbl: 'Riesgo alto',          cls: 'red' },
       { val: (res.riesgo_medio||0).toLocaleString(),  lbl: 'Riesgo medio',         cls: 'gold' },
       { val: (res.flujo_completo||0).toLocaleString(),lbl: 'Flujo completo',       cls: 'green' },
-      { val: (res.cobraron_tgn||0).toLocaleString(),  lbl: 'Cobraron en TGN',     cls: 'green' },
+      { val: (res.cobraron_tgn||0).toLocaleString(),  lbl: 'Organismo con pagos TGN', cls: 'green' },
       { val: (res.con_cuit||0).toLocaleString(),      lbl: 'Con CUIT extraído',   cls: '' },
       { val: (res.organismos_unicos||0).toLocaleString(), lbl: 'Organismos únicos', cls: '' },
       { val: fmtMonto(res.monto_total_ars||0),        lbl: 'Monto total ARS',     cls: 'blue' },
@@ -1358,7 +1357,7 @@ async function buscarOrganismo() {
             `<div class="stat-row"><span class="stat-key">${k}</span><span class="badge badge-red">${v}</span></div>`
           ).join('')}
         </div>` : ''}
-      ${mostrarIA ? `<button class="btn-ia" id="btn-ia-org" onclick="explicarOrganismoIA()">🤖 Explicar con IA</button>
+      ${mostrarIA ? `<button class="btn-ia" id="btn-ia-org" onclick="explicarOrganismoIA()">🤖 Explicar con IA (máx. 3 por día)</button>
       <div class="ia-box" id="ia-box-org" style="display:none"></div>` : ''}
       <div class="card-title" style="margin-bottom:10px">🏆 Top proveedores</div>
       <div class="table-wrap">
@@ -1411,12 +1410,12 @@ async function explicarOrganismoIA() {
     } else {
       box.innerHTML = `<span class="ia-label">IA no disponible</span>${data.motivo || 'Sin detalle.'}`;
       btn.disabled = false;
-      btn.textContent = '🤖 Explicar con IA';
+      btn.textContent = '🤖 Explicar con IA (máx. 3 por día)';
     }
   } catch(e) {
     box.innerHTML = `<span class="ia-label">Error</span>No se pudo consultar la IA.`;
     btn.disabled = false;
-    btn.textContent = '🤖 Explicar con IA';
+    btn.textContent = '🤖 Explicar con IA (máx. 3 por día)';
   }
 }
 
@@ -1438,7 +1437,7 @@ async function cargarProveedores() {
         <td title="${p.nombre||''}">${(p.nombre||'—').substring(0,40)}</td>
         <td style="text-align:center">${p.contratos||0}</td>
         <td style="font-family:var(--mono);text-align:right">${fmtMonto(p.monto_adj)}</td>
-        <td style="font-family:var(--mono);text-align:right;color:var(--green)">${fmtMonto(p.monto_tgn)}</td>
+        <td style="font-family:var(--mono);text-align:right;color:var(--muted)" title="La Tesorería no informa pagos por CUIT">n/d</td>
         <td>${p.riesgo_promedio ? badgeRiesgo(p.riesgo_promedio >= 5 ? 'Alto' : p.riesgo_promedio >= 2 ? 'Medio' : 'Bajo') : '—'}</td>
         <td><button class="btn ghost" style="font-size:10px;padding:4px 10px"
             onclick="verPerfilProv('${p.cuit}')">Ver</button></td>
@@ -1464,7 +1463,7 @@ async function verPerfilProv(cuit) {
         <div class="kpi-grid" style="margin-bottom:16px">
           <div class="kpi"><div class="kpi-val">${d.total_contratos?.toLocaleString()}</div><div class="kpi-lbl">Contratos</div></div>
           <div class="kpi"><div class="kpi-val">${fmtMonto(d.monto_adjudicado)}</div><div class="kpi-lbl">Adjudicado</div></div>
-          <div class="kpi green"><div class="kpi-val">${fmtMonto(d.monto_cobrado_tgn)}</div><div class="kpi-lbl">Cobrado TGN</div></div>
+          <div class="kpi"><div class="kpi-val">n/d</div><div class="kpi-lbl" title="La Tesorería no informa pagos por CUIT">Cobrado TGN</div></div>
           <div class="kpi"><div class="kpi-val">${d.organismos_unicos}</div><div class="kpi-lbl">Organismos</div></div>
         </div>
         ${d.red_flags && Object.keys(d.red_flags).length ? `
@@ -1473,7 +1472,7 @@ async function verPerfilProv(cuit) {
             `<div class="stat-row"><span class="stat-key">${k}</span><span class="badge badge-red">${v}</span></div>`
           ).join('')}
           <div style="margin-bottom:16px"></div>` : ''}
-        ${mostrarIA ? `<button class="btn-ia" id="btn-ia-prov" onclick="explicarProveedorIA()">🤖 Explicar con IA</button>
+        ${mostrarIA ? `<button class="btn-ia" id="btn-ia-prov" onclick="explicarProveedorIA()">🤖 Explicar con IA (máx. 3 por día)</button>
         <div class="ia-box" id="ia-box-prov" style="display:none"></div>` : ''}
         <div class="card-title" style="margin-bottom:10px">🏛️ Organismos contratantes</div>
         <div class="table-wrap">
@@ -1525,12 +1524,12 @@ async function explicarProveedorIA() {
     } else {
       box.innerHTML = `<span class="ia-label">IA no disponible</span>${data.motivo || 'Sin detalle.'}`;
       btn.disabled = false;
-      btn.textContent = '🤖 Explicar con IA';
+      btn.textContent = '🤖 Explicar con IA (máx. 3 por día)';
     }
   } catch(e) {
     box.innerHTML = `<span class="ia-label">Error</span>No se pudo consultar la IA.`;
     btn.disabled = false;
-    btn.textContent = '🤖 Explicar con IA';
+    btn.textContent = '🤖 Explicar con IA (máx. 3 por día)';
   }
 }
 
@@ -1598,7 +1597,7 @@ async function cargarMonitor() {
       data.fantasmas || [],
       ['cuit','nombre','contratos','monto_total'],
       ['CUIT','Nombre','Contratos','Monto Adjudicado'],
-      '✅ Todos los adjudicados registran cobro en TGN'
+      'ℹ️ ' + (data.fantasmas_nota || 'No disponible.')
     );
 
   } catch(e) {

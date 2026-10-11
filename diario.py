@@ -57,7 +57,12 @@ TIMEOUT = 60
 REINTENTOS = 3
 ESPERA_ENTRE_REINTENTOS = 15
 PAUSA_ENTRE_AVISOS = 1          # segundos entre requests a BORA
-UMBRAL_LICITACION = 10_000_000  # ARS — debajo = contratación directa
+# Topes del Decreto 1030/2016 art. 27 en módulos (compulsa abreviada hasta 1.000;
+# licitación privada hasta 5.000). Valor del módulo configurable (≈ $50.000 en 2026).
+# Antes había un umbral fijo de $10M, desactualizado.
+MODULO_ARS = float(os.getenv("MODULO_ARS", "50000"))
+TOPES_MODULOS = [1_000, 5_000]
+UMBRAL_LICITACION = 1_000 * MODULO_ARS  # compatibilidad
 
 # URLs ────────────────────────────────────────────────────────────────────────
 BORA_SECCION3  = "https://www.boletinoficial.gob.ar/seccion/tercera"
@@ -109,6 +114,72 @@ def _get(url: str, *, verify_ssl: bool = False, **kwargs) -> requests.Response |
     return None
 
 
+# ── Extractores de avisos de adjudicación (revisados contra 116 avisos reales
+# de sep-oct 2026; mismos que gob_bo_comprar_tgn). El proveedor ya no se corta en
+# el primer punto de "S.A.", se leen más formatos de monto y el CUIT se valida
+# con el dígito verificador (módulo 11).
+_FIN_NOMBRE = (r'(?=\s*(?:[,;–\-\.\(]\s*)?(?:C\.?U\.?I\.?T|”|(?i:IMPORTE|MONTO|DOMICILIO|RENGL[OÓ]N)|el\s+Rengl|los\s+Rengl|la\s+totalidad|Rengl[oó]n|por\s+(?:un|el|la)\s|por\s+\$|,\s*por|\(\$|\$|\.\s+e\.\s|e\.\s+\d{2}/\d{2}/\d{4}|$))')
+_SOC = r'(?:S\.?\s?A\.?\s?U\.?|S\.?\s?A\.?\s?S\.?|S\.?\s?R\.?\s?L\.?|S\.?\s?A\.?|S\.?\s?E\.?|S\.?\s?C\.?|LTDA\.?|S\.?\s?A\.?\s?C\.?\s?I\.?\s?F\.?(?:\s?I\.?)?)'
+def _cuit_ok(c):
+    d=re.sub(r'\D','',c)
+    if len(d)!=11: return False
+    s=sum(int(a)*m for a,m in zip(d[:10],[5,4,3,2,7,6,5,4,3,2])); v=11-s%11
+    v={11:0,10:9}.get(v,v)
+    return v==int(d[10])
+def _extraer_cuit_validado(texto):
+    if not texto: return ""
+    t=re.sub(r'\s+',' ',texto)
+    for m in re.finditer(r'\b(\d{2})\s?-\s?(\d{7,8})\s?-\s?(\d)\b|\b((?:20|23|24|27|30|33|34)\d{9})\b',t):
+        c=m.group(0).replace(' ','')
+        if _cuit_ok(c):
+            return c
+    return ""
+def _extraer_proveedor_v2(texto):
+    if not texto: return ""
+    t=re.sub(r'\s+',' ',texto)
+    i=t.find('Texto del Aviso'); cuerpo=t[i:] if i>=0 else t
+    pats=[r'(?i:ADJUDICATARI[OA])\s*(?:\d+\s*)?[:\-]?\s*',
+          r'PROVEEDOR(?:ES)?\s+ADJUDICADO\S*\s*[:\-]?\s*',
+          r'(?i:adjudic\w*)[^:;]{0,140}?(?i:a\s+la\s+firma(?:\s+comercial)?(?:\s+que\s+a\s+continuaci[oó]n\s+se\s+detalla)?:?|al\s+oferente|a\s+la\s+empresa|la\s+empresa|al?\s+Sr\.?|a\s+la\s+Sra\.?)\s+',
+          r'(?i:adjudic\w*)\s+a\s+(?!favor|la\s|los\s|las\s|el\s)',
+          r'(?i:la\s+firma)\s+']
+    for p in pats:
+        for m in re.finditer(p,cuerpo):
+            resto=cuerpo[m.end():m.end()+160]
+            resto=re.sub(r'^(?i:Rengl[oó]n(?:es)?\s+N\S*\s*[\d\s,y]+(?:AL\s+\d+)?\s*:\s*)','',resto)
+            n=re.match(r'([A-ZÁÉÍÓÚÑ0-9"“][^;]{2,120}?)'+_FIN_NOMBRE,resto)
+            if not n: continue
+            nom=n.group(1).strip(' ,.-–"“”')
+            # conservar sufijo societario con su punto final
+            msoc=re.match(r'(.*?\b'+_SOC+r')(?=[\s,\(–\-]|$)',n.group(1).strip())
+            if msoc and len(msoc.group(1))>3: nom=msoc.group(1).strip(' ,-–')
+            nom=nom.strip(' "“”')
+            if len(nom)>3 and not re.match(r'(?i)(los|el|la)\s+rengl',nom):
+                return re.sub(r'\s+',' ',nom)
+    return ""
+def _num(s):
+    s=s.strip().rstrip('.,')
+    if re.search(r',\d{1,2}$',s): s=s.replace('.','').replace(',','.')
+    elif re.search(r'\.\d{1,2}$',s) and s.count('.')==1 and ',' in s: s=s.replace(',','')
+    else: s=s.replace('.','').replace(',','')
+    try: return float(s)
+    except: return None
+def _extraer_monto_v2(texto):
+    if not texto: return ""
+    t=re.sub(r'\s+',' ',texto)
+    m=re.search(r'(?:MONTO\s+TOTAL\s+ADJUDICADO|TOTAL\s+ADJUDICADO|IMPORTE\s+(?:TOTAL\s+)?ADJUDICADO|MONTO\s+ADJUDICADO|MONTO\s+TOTAL)[^\$\d]{0,40}\$?\s*([\d\.,]{4,})',t,re.I)
+    if not m:
+        i=t.upper().find('ADJUDIC')
+        if i<0: return ""
+        m=re.search(r'(?i:por\s+un\s+(?:monto\s+)?total\s+de|monto\s+total)[^\$]{0,200}\$\s*([\d\.]{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d{4,}(?:,\d{1,2})?)(?![\d])',t[i:])
+        if not m: m=re.search(r'\$\s*([\d\.]{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d{4,}(?:,\d{1,2})?)(?!\s?\d)',t[i:])
+    if m:
+        v=_num(m.group(1))
+        if v and v>=1000: return "$"+m.group(1).strip().rstrip('.')
+    return ""
+
+
+
 def _normalizar_cuit(texto: str) -> str:
     """Extrae y normaliza CUIT/CUIL de un texto libre.
 
@@ -119,14 +190,11 @@ def _normalizar_cuit(texto: str) -> str:
     "Sin CUIT" aunque el aviso real sí lo publique.
     """
     texto = re.sub(r"\s+", " ", str(texto))
-    # Formato XX-XXXXXXXX-X (con o sin espacios sueltos alrededor de los guiones)
-    m = re.search(r'\b(\d{2})\s*-\s*(\d{7,8})\s*-\s*(\d{1})\b', texto)
-    if m:
-        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-    # Sin guiones (11 dígitos, puede tener espacios entre grupos)
-    m = re.search(r'\b(20|23|24|27|30|33|34)\s*(\d{6})\s*(\d{3})\s*(\d{1})\b', texto)
-    if m:
-        return f"{m.group(1)}-{m.group(2)}{m.group(3)}-{m.group(4)}"
+    # Formato XX-XXXXXXXX-X o 11 dígitos; se toma el primero con dígito verificador válido
+    for m in re.finditer(r'\b(\d{2})\s*-\s*(\d{8})\s*-\s*(\d{1})\b|\b(20|23|24|27|30|33|34)\s*(\d{6})\s*(\d{3})\s*(\d{1})\b', texto):
+        d = re.sub(r"\D", "", m.group(0))
+        if _cuit_ok(d):
+            return f"{d[:2]}-{d[2:10]}-{d[10]}"
     return ""
 
 
@@ -245,6 +313,10 @@ def _texto_aviso_bora(aviso_id: str, fecha_pub: str) -> str:
 
 
 def _extraer_proveedor(texto: str) -> str:
+    return _extraer_proveedor_v2(texto)
+
+
+def _extraer_proveedor_anterior(texto: str) -> str:
     # pdfminer inserta espacios dobles (kerning del PDF); colapsamos antes de buscar
     texto_norm = re.sub(r"  +", " ", texto)
     patrones = [
@@ -263,6 +335,10 @@ def _extraer_proveedor(texto: str) -> str:
 
 
 def _extraer_monto_bora(texto: str) -> str:
+    return _extraer_monto_v2(texto)
+
+
+def _extraer_monto_bora_anterior(texto: str) -> str:
     # pdfminer inserta espacios dobles (kerning del PDF); colapsamos y usamos \s+ en palabras clave
     texto_norm = re.sub(r"  +", " ", texto)
     m = re.search(
@@ -281,8 +357,11 @@ def extraer_bora(hoy: date | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     if hoy is None:
         hoy = date.today()
 
-    log.info("📰 BORA Sección 3ra — índice")
-    r = _get(BORA_SECCION3)
+    # Se pide la edición de la fecha (/seccion/tercera/AAAAMMDD) y se descartan avisos
+    # de otras fechas: la portada muestra la última edición, y en feriados se volvía a
+    # guardar la del día anterior como si fuera nueva.
+    log.info(f"📰 BORA Sección 3ra — índice del {hoy.isoformat()}")
+    r = _get(f"{BORA_SECCION3}/{hoy.strftime('%Y%m%d')}")
     if not r:
         log.error("BORA: no se pudo conectar")
         return pd.DataFrame(), pd.DataFrame()
@@ -330,6 +409,7 @@ def extraer_bora(hoy: date | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
                 "fuente": "BORA Sección 3ra",
             })
 
+    indice    = [r for r in indice if r["fecha_publicacion"] == hoy.isoformat()]
     adj_raw   = [r for r in indice if r["es_adjudicacion"]]
     licit_raw = [r for r in indice if not r["es_adjudicacion"]]
     log.info(f"  Índice: {len(adj_raw)} adjudicaciones, {len(licit_raw)} licitaciones")
@@ -394,7 +474,7 @@ def extraer_comprar(anio: int | None = None) -> pd.DataFrame:
     r = _get(COMPRAR_LISTA_URL)
     if not r:
         log.error("  Comprar: no se pudo conectar al portal")
-        return _extraer_comprar_csv_historico(anio)
+        return pd.DataFrame()
 
     soup = BeautifulSoup(r.text, "lxml")
 
@@ -410,7 +490,7 @@ def extraer_comprar(anio: int | None = None) -> pd.DataFrame:
 
     if not tabla:
         log.warning("  Comprar: tabla no encontrada en HTML")
-        return _extraer_comprar_csv_historico(anio)
+        return pd.DataFrame()
 
     filas = []
     headers = []
@@ -448,7 +528,7 @@ def extraer_comprar(anio: int | None = None) -> pd.DataFrame:
 
     if not filas:
         log.warning("  Comprar: 0 filas parseadas")
-        return _extraer_comprar_csv_historico(anio)
+        return pd.DataFrame()
 
     df = pd.DataFrame(filas)
     log.info(f"  ✅ {len(df):,} procesos extraídos del portal")
@@ -457,6 +537,10 @@ def extraer_comprar(anio: int | None = None) -> pd.DataFrame:
 
 def _extraer_comprar_csv_historico(anio: int) -> pd.DataFrame:
     """
+    YA NO SE USA en el ciclo diario: cuando el portal fallaba se guardaban las
+    22.281 adjudicaciones de 2020 en el reporte del día (26 días entre jun y oct
+    2026) y se cruzaban por CUIT con adjudicaciones de 2026.
+
     Fallback: descarga CSV de adjudicaciones históricas desde datos.gob.ar.
     Solo disponible para años 2018-2020.
     """
@@ -527,6 +611,7 @@ def extraer_tgn(anio: int | None = None) -> pd.DataFrame:
 
     # Endpoint REST interno — nivel beneficiario expone CUIT
     # Documentado en: presupuestoabierto.gob.ar/sici/rest-api/credito/ejecutado
+    # (El endpoint REST "nivel beneficiario" no existe; se intenta y cae a la API v1.)
     TGN_REST_URL = (
         "https://www.presupuestoabierto.gob.ar/sici/rest-api/"
         "credito/ejecutado"
@@ -737,7 +822,9 @@ def cruzar_fuentes(
         # ── Cruce con TGN ───────────────────────────────────────────────────
         # 1) Por CUIT exacto (más confiable — solo si el endpoint devolvió CUITs)
         tgn_match = tgn_por_cuit.get(cuit_adj, {})
-        # 2) Fallback por organismo normalizado
+        tgn_por_cuit_ok = bool(tgn_match)
+        # 2) Fallback por organismo normalizado: indica que el ORGANISMO tiene pagos
+        #    en el año, no que este proveedor haya cobrado (la API no trae CUIT).
         if not tgn_match:
             tgn_match = tgn_por_org.get(org_norm, {})
 
@@ -753,8 +840,10 @@ def cruzar_fuentes(
             alerta = "🚫 CANCELADA / DEJADA SIN EFECTO"
         elif tiene_cuit and en_comprar and en_tgn:
             alerta = "🚨 FLUJO COMPLETO: BORA→COMPRAR→TGN"
-        elif tiene_cuit and en_tgn:
+        elif tiene_cuit and en_tgn and tgn_por_cuit_ok:
             alerta = "🔶 BORA + TGN (cobró)"
+        elif tiene_cuit and en_tgn:
+            alerta = "🔶 BORA + TGN (por organismo)"
         elif tiene_cuit and en_comprar:
             alerta = "🔷 BORA + COMPRAR"
         elif tiene_cuit:
@@ -794,8 +883,10 @@ def cruzar_fuentes(
             "unidad_operativa":       cm.get("unidad_operativa", ""),
             # ── TGN ─────────────────────────────────────────────────────────
             "cobro_en_tgn":           "✅ SÍ" if en_tgn else "❌ NO",
+            "metodo_cruce_tgn":       ("CUIT" if tgn_por_cuit_ok else "organismo") if en_tgn else "",
             "organismo_tgn":          tgn_match.get("organismo_tgn", ""),
             "unidad_ejecutora_tgn":   tgn_match.get("unidad_ejecutora", ""),
+            # Crédito pagado del organismo en el año, en MILLONES de pesos
             "monto_pagado_tgn":       tgn_match.get("monto_pagado", ""),
             "monto_devengado_tgn":    tgn_match.get("monto_devengado", ""),
             # ── Trazabilidad ────────────────────────────────────────────────
@@ -809,6 +900,7 @@ def cruzar_fuentes(
     orden = {
         "🚨 FLUJO COMPLETO: BORA→COMPRAR→TGN": 0,
         "🔶 BORA + TGN (cobró)":               1,
+        "🔶 BORA + TGN (por organismo)":       1,
         "🔷 BORA + COMPRAR":                   2,
         "✅ ADJUDICADO (sin cruce aún)":        3,
         "⚠️ SIN CUIT EXTRAÍDO":                4,
@@ -857,27 +949,32 @@ def _agregar_riesgo(df: pd.DataFrame) -> pd.DataFrame:
             flags.append("⚠️ Contratación directa")
             score += 3
 
-        # Monto bajo umbral licitación pública
-        if 0 < monto < UMBRAL_LICITACION:
-            flags.append("⚠️ Monto bajo umbral licitación")
-            score += 2
+        # Monto justo por debajo (hasta 10%) de un tope de procedimiento → posible
+        # fraccionamiento. Antes se marcaba CUALQUIER monto menor a $10M (la mayoría
+        # de las compras chicas), lo que no indica nada por sí solo.
+        for mod in TOPES_MODULOS:
+            tope = mod * MODULO_ARS
+            if 0.9 * tope <= monto <= tope:
+                flags.append(f"⚠️ Monto justo bajo el tope de {mod:,} módulos")
+                score += 2
+                break
 
         # Redeterminación de precios
         if "redeterminacion" in detalle or "redeterminación" in detalle:
             flags.append("⚠️ Redeterminación de precios")
             score += 2
 
-        # Sin CUIT extraído
+        # Se retiraron dos indicadores que no medían riesgo:
+        #  - "Sin CUIT": es una falla de lectura del aviso, no del proceso.
+        #  - "Sin cobro registrado en TGN": la API de TGN no informa CUIT de
+        #    beneficiarios, así que nunca puede confirmarse un cobro por proveedor.
         if not str(fila.get("cuit_proveedor", "")).strip():
-            flags.append("⚠️ Sin CUIT")
-            score += 1
+            flags.append("ℹ️ CUIT no extraído del aviso")
 
-        # Adjudicado pero sin cobro TGN
-        if fila.get("cobro_en_tgn") == "❌ NO" and fila.get("cuit_proveedor"):
-            flags.append("⚠️ Sin cobro registrado en TGN")
-            score += 1
-
-        indicadores_col.append(" | ".join(flags) if flags else "✅ Sin alertas")
+        if not any(f.startswith("⚠️") for f in flags):
+            flags = flags or []
+            flags.insert(0, "✅ Sin alertas")
+        indicadores_col.append(" | ".join(flags))
         score_col.append(score)
 
     df = df.copy()
@@ -1017,7 +1114,17 @@ def main():
     log.info("=" * 60)
 
     # 1. Extracción
+    rep_hoy = os.path.join(DATA_DIR, hoy.strftime("%Y-%m"), f"reporte_{hoy.isoformat()}.xlsx")
+    if os.path.exists(rep_hoy):
+        log.info(f"✅ El reporte de hoy ya existe ({rep_hoy}) — nada que reintentar.")
+        return None
+
     df_adj, df_licit = extraer_bora(hoy)
+    if df_adj.empty and df_licit.empty:
+        # Sin edición del BORA (feriado) o sitio caído: no se guarda un reporte vacío;
+        # la segunda corrida programada del día reintenta.
+        log.warning("⏭️ Sin avisos del BORA para hoy — no se genera reporte.")
+        return None
     df_comprar       = extraer_comprar(hoy.year)
     df_tgn           = extraer_tgn(hoy.year)
 

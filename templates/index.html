@@ -1100,11 +1100,11 @@ async function cargarInicio() {
 
     // Status bar
     document.getElementById('status-txt').textContent =
-      `${status.total_registros?.toLocaleString() || 0} registros · ${status.ultimo_reporte || 'sin datos'}`;
+      `${status.total_registros?.toLocaleString() || 0} adjudicaciones BORA · ${status.ultimo_reporte || 'sin datos'}`;
 
     // KPIs
     const kpis = [
-      { val: (res.total||0).toLocaleString(),         lbl: 'Total contratos',      cls: '' },
+      { val: (res.total||0).toLocaleString(),         lbl: 'Adjudicaciones publicadas en el BORA (desde 23/2/2026)', cls: '' },
       { val: (res.riesgo_alto||0).toLocaleString(),   lbl: 'Riesgo alto',          cls: 'red' },
       { val: (res.riesgo_medio||0).toLocaleString(),  lbl: 'Riesgo medio',         cls: 'gold' },
       { val: (res.flujo_completo||0).toLocaleString(),lbl: 'Flujo completo',       cls: 'green' },

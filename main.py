@@ -163,6 +163,19 @@ def _cargar_df() -> pd.DataFrame:
         ], ignore_index=True)
     if "cuit_proveedor" in df_total.columns:
         df_total["cuit_proveedor"] = df_total["cuit_proveedor"].astype(str).str.replace(r"\.0$", "", regex=True).replace("nan", "")
+    # Recalcular el riesgo con las reglas vigentes (los reportes viejos guardaron el
+    # nivel con indicadores ya retirados: "Sin CUIT", "Sin cobro TGN", "monto < $10M").
+    # No se modifican los archivos, solo lo que muestra la web.
+    try:
+        from diario import _agregar_riesgo
+        base = df_total.copy()
+        if "cancelada" in base.columns:
+            base["cancelada"] = base["cancelada"].astype(str).str.strip().str.lower().isin(["true", "1"])
+        recalculado = _agregar_riesgo(base)
+        for c in ["indicadores_riesgo", "score_riesgo_licit", "nivel_riesgo_licit"]:
+            df_total[c] = recalculado[c].values
+    except Exception as e:
+        print(f"⚠️ No se pudo recalcular el riesgo: {e}")
     # Normalizar columna fecha
     for col in ["fecha", "fecha_publicacion", "fecha_extraccion"]:
         if col in df_total.columns:

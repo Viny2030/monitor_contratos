@@ -64,3 +64,21 @@ def test_limite_ia(monkeypatch):
     main._ia_usos.update({"dia": None, "por_ip": {}, "total": 0})
     c = TestClient(main.app)
     assert [c.post("/api/ia/explicar-organismo", json={}).status_code for _ in range(4)] == [200, 200, 200, 429]
+
+
+def test_tablero_recalcula_riesgo_historico(tmp_path, monkeypatch):
+    import main
+    d = tmp_path / "2026-03"; d.mkdir()
+    fila = {"link_bora": "L9", "cuit_proveedor": "", "organismo_contratante": "X",
+            "tipo_proceso_bora": "Licitación Pública 1/26", "tipo_procedimiento": "",
+            "monto_adjudicado_bora": "", "cobro_en_tgn": "❌ NO", "cancelada": False,
+            # nivel guardado con las reglas viejas (Sin CUIT + Sin cobro TGN)
+            "indicadores_riesgo": "⚠️ Sin CUIT", "score_riesgo_licit": 5, "nivel_riesgo_licit": "Alto"}
+    with pd.ExcelWriter(d / "reporte_2026-03-02.xlsx") as w:
+        pd.DataFrame([fila]).to_excel(w, sheet_name="🚨 Flujo Completo", index=False)
+    monkeypatch.setattr(main, "DATA_DIR", str(tmp_path))
+    main._invalidar_cache()
+    df = main._cargar_df()
+    main._invalidar_cache()
+    assert df.iloc[0]["nivel_riesgo_licit"] == "Bajo"
+    assert df.iloc[0]["score_riesgo_licit"] == 0

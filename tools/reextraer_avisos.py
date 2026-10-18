@@ -84,8 +84,11 @@ def main_cli():
             nuevos.append({"link_bora": r["link_bora"], **{c: aporta.get(c, "") for c in CAMPOS}})
             for c in aporta:
                 recuperados[c] += 1
-        with open(REVISADOS, "a", encoding="utf-8") as fh:
-            fh.write(r["link_bora"] + "\n")
+        # Solo se marca como revisado si el BORA devolvió el texto: si no respondió,
+        # la próxima corrida (por ejemplo, la del cron del día siguiente) lo reintenta.
+        if texto:
+            with open(REVISADOS, "a", encoding="utf-8") as fh:
+                fh.write(r["link_bora"] + "\n")
         if i % 25 == 0:
             print(f"  … {i}/{len(pendientes)} · recuperados: {recuperados}")
             _guardar(previos, nuevos)

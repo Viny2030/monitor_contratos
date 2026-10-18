@@ -191,7 +191,9 @@ def _normalizar_cuit(texto: str) -> str:
     """
     texto = re.sub(r"\s+", " ", str(texto))
     # Formato XX-XXXXXXXX-X o 11 dígitos; se toma el primero con dígito verificador válido
-    for m in re.finditer(r'\b(\d{2})\s*-\s*(\d{8})\s*-\s*(\d{1})\b|\b(20|23|24|27|30|33|34)\s*(\d{6})\s*(\d{3})\s*(\d{1})\b', texto):
+    # Segunda alternativa: 11 dígitos seguidos (2 + 8 + 1). Antes pedía 2+6+3+1 = 12
+    # dígitos, así que un CUIT escrito sin guiones ("20180531778") nunca se leía.
+    for m in re.finditer(r'\b(\d{2})\s*-\s*(\d{8})\s*-\s*(\d{1})\b|\b(20|23|24|27|30|33|34)\s*(\d{8})\s*(\d{1})\b', texto):
         d = re.sub(r"\D", "", m.group(0))
         if _cuit_ok(d):
             return f"{d[:2]}-{d[2:10]}-{d[10]}"

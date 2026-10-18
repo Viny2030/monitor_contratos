@@ -176,11 +176,24 @@ def _cargar_df() -> pd.DataFrame:
             df_total[c] = recalculado[c].values
     except Exception as e:
         print(f"⚠️ No se pudo recalcular el riesgo: {e}")
-    # Normalizar columna fecha
-    for col in ["fecha", "fecha_publicacion", "fecha_extraccion"]:
-        if col in df_total.columns:
-            df_total[col] = pd.to_datetime(df_total[col], errors="coerce")
-            break
+    # Normalizar columna fecha. Hasta mayo los reportes usaban "fecha"; desde junio,
+    # "fecha_publicacion". Antes se convertía solo la primera columna encontrada
+    # ("fecha"), así que el 61% de los contratos (junio en adelante) quedaba sin
+    # fecha y desaparecía de cualquier filtro por fechas y de la evolución mensual.
+    fechas = [pd.to_datetime(df_total[c], errors="coerce")
+              for c in ["fecha", "fecha_publicacion", "fecha_extraccion"] if c in df_total.columns]
+    if fechas:
+        fecha = fechas[0]
+        for otra in fechas[1:]:
+            fecha = fecha.fillna(otra)
+        df_total["fecha"] = fecha
+    # Correcciones manuales/recuperadas (CUIT, proveedor, monto) por aviso: no se
+    # tocan los Excel originales, se completan solo celdas vacías.
+    df_total = _aplicar_correcciones(df_total)
+    # Nombre de organismo normalizado (sin sufijos como "Solicitudes de Provisión")
+    col_org = _col(df_total, ["organismo_contratante", "organismo"])
+    if col_org:
+        df_total["organismo_base"] = df_total[col_org].astype(str).map(_organismo_base)
     _cache["df"]        = df_total
     _cache["timestamp"] = datetime.now().isoformat()
     return df_total
@@ -251,6 +264,115 @@ def _norm(texto: str) -> str:
     t = unicodedata.normalize("NFD", texto.upper())
     t = "".join(c for c in t if unicodedata.category(c) != "Mn")
     return re.sub(r"\s+", " ", t).strip()
+
+
+# ── Búsqueda de texto ────────────────────────────────────────────────────────
+# Antes las búsquedas usaban str.contains con expresión regular y distinguían
+# acentos: "ejercito" no encontraba "EJÉRCITO", "economia" no encontraba
+# "ECONOMÍA", "S.A." coincidía con cualquier cosa (el punto es comodín) y un
+# paréntesis suelto daba error 500.
+def _contiene(serie: pd.Series, consulta: str) -> pd.Series:
+    """Coincidencia literal, sin distinguir mayúsculas ni acentos."""
+    q = _norm(str(consulta))
+    if not q:
+        return pd.Series(True, index=serie.index)
+    return serie.fillna("").astype(str).map(_norm).str.contains(q, regex=False)
+
+
+def _solo_digitos(v) -> str:
+    return re.sub(r"\D", "", str(v))
+
+
+# Siglas de uso común → nombre como figura en el BORA
+SIGLAS_ORGANISMOS = {
+    "ANSES": "ADMINISTRACION NACIONAL DE LA SEGURIDAD SOCIAL",
+    "ARCA":  "AGENCIA DE RECAUDACION Y CONTROL ADUANERO",
+    "AFIP":  "AGENCIA DE RECAUDACION Y CONTROL ADUANERO",
+    "PFA":   "POLICIA FEDERAL ARGENTINA",
+    "SPF":   "SERVICIO PENITENCIARIO FEDERAL",
+    "EANA":  "EMPRESA ARGENTINA DE NAVEGACION AEREA",
+    "ANES":  "ADMINISTRACION NACIONAL DE ESTABLECIMIENTOS DE SALUD",
+    "BNA":   "BANCO DE LA NACION ARGENTINA",
+    "MPF":   "MINISTERIO PUBLICO FISCAL",
+    "PAMI":  "INSTITUTO NACIONAL DE SERVICIOS SOCIALES PARA JUBILADOS Y PENSIONADOS",
+    "INTA":  "INSTITUTO NACIONAL DE TECNOLOGIA AGROPECUARIA",
+    "CONICET": "CONSEJO NACIONAL DE INVESTIGACIONES CIENTIFICAS Y TECNICAS",
+}
+
+
+def _expandir_sigla(consulta: str) -> str:
+    return SIGLAS_ORGANISMOS.get(_norm(consulta), consulta)
+
+
+# El BORA a veces agrega al nombre del organismo el título del aviso
+# ("SERVICIO PENITENCIARIO FEDERAL Solicitudes de Provisión", "... Adjudicaciones
+# Mayo/2026", "NOTA ACLARATORIA - ..."): eso partía un organismo en varios.
+_SUFIJOS_ORGANISMO = re.compile(
+    r"\s+(?:Solicitud(?:es)?\s+de\s+Provisi[oó]n|Adjudicaciones\s+\w+/\d{4}|Licitaciones\s+P[uú]blicas"
+    r"|Licitaci[oó]n(?:es)?\s+Privadas?|Contrataci[oó]n(?:es)?\s+Directas?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _organismo_base(nombre: str) -> str:
+    n = re.sub(r"\s+", " ", str(nombre)).strip()
+    n = re.sub(r"^(?:NOTA ACLARATORIA|FE DE ERRATAS|AVISO ACLARATORIO)\s*[-–:]\s*", "", n, flags=re.IGNORECASE)
+    anterior = None
+    while anterior != n:  # puede haber más de un sufijo
+        anterior = n
+        n = _SUFIJOS_ORGANISMO.sub("", n).strip()
+    return n
+
+
+# ── Correcciones por aviso (data/correcciones/*.csv) ─────────────────────────
+CORRECCIONES_DIR = os.path.join(DATA_DIR, "correcciones")
+_CAMPOS_CORREGIBLES = ["cuit_proveedor", "proveedor_adjudicado", "monto_adjudicado_bora"]
+
+
+def _aplicar_correcciones(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Completa CUIT, proveedor y monto vacíos con los CSV de data/correcciones/
+    (columnas: link_bora + cualquiera de _CAMPOS_CORREGIBLES). Solo llena celdas
+    vacías: nunca reemplaza un dato que ya vino del aviso. Los genera, por
+    ejemplo, tools/reextraer_avisos.py al volver a leer avisos sin CUIT.
+    """
+    archivos = sorted(glob.glob(os.path.join(CORRECCIONES_DIR, "*.csv")))
+    if not archivos or "link_bora" not in df.columns:
+        return df
+    try:
+        corr = pd.concat([pd.read_csv(a, dtype=str).fillna("") for a in archivos], ignore_index=True)
+    except Exception as e:
+        print(f"⚠️ No se pudieron leer las correcciones: {e}")
+        return df
+    if "link_bora" not in corr.columns:
+        return df
+    corr = corr.drop_duplicates(subset=["link_bora"], keep="last").set_index("link_bora")
+    df = df.copy()
+    for campo in _CAMPOS_CORREGIBLES:
+        if campo not in corr.columns or campo not in df.columns:
+            continue
+        nuevo = df["link_bora"].map(corr[campo]).fillna("")
+        vacio = df[campo].astype(str).str.strip() == ""
+        df.loc[vacio & (nuevo != ""), campo] = nuevo[vacio & (nuevo != "")]
+    return df
+
+
+def _json_seguro(obj):
+    """Convierte tipos de numpy/pandas a tipos nativos para que FastAPI los serialice."""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: _json_seguro(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_seguro(v) for v in obj]
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return None if np.isnan(obj) else float(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, pd.Timestamp):
+        return obj.strftime("%Y-%m-%d")
+    return obj
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -359,17 +481,27 @@ def contratos(
     col_org    = _col(df, ["organismo_contratante", "organismo"])
     col_cuit   = _col(df, ["cuit_proveedor", "cuit"])
     col_escen  = _col(df, ["tipo_decision"])
+    if cuit and not _solo_digitos(cuit):
+        cuit = None  # texto sin dígitos: no filtra (antes devolvía todo igual)
 
-    if alerta and "alerta" in df.columns:
-        df = df[df["alerta"].str.contains(alerta, case=False, na=False)]
+    if alerta and _norm(alerta) == "SIN CUIT" and col_cuit:
+        # Antes buscaba el texto "SIN CUIT" en la columna alerta, que los reportes
+        # nuevos ya no usan ("SOLO BORA"): se perdían 187 de los 470 avisos sin CUIT.
+        df = df[df[col_cuit].astype(str).str.strip() == ""]
+    elif alerta and "alerta" in df.columns:
+        df = df[_contiene(df["alerta"], alerta)]
     if nivel_riesgo and col_riesgo:
         df = df[df[col_riesgo].str.upper() == nivel_riesgo.upper()]
     if organismo and col_org:
-        df = df[df[col_org].str.contains(organismo, case=False, na=False)]
+        df = df[_contiene(df[col_org], _expandir_sigla(organismo))]
     if escenario and col_escen:
-        df = df[df[col_escen].str.contains(escenario, case=False, na=False)]
+        df = df[_contiene(df[col_escen], escenario)]
     if cuit and col_cuit:
-        df = df[df[col_cuit].astype(str).str.contains(re.sub(r"[^\d]", "", cuit))]
+        # Se comparan solo los dígitos en los dos lados: antes la consulta perdía los
+        # guiones pero los CUIT guardados los conservaban, y un CUIT completo nunca coincidía.
+        df = df[df[col_cuit].map(_solo_digitos).str.contains(_solo_digitos(cuit), regex=False)]
+    if col_fecha:
+        df = df.sort_values(col_fecha, ascending=False, na_position="last")
     if desde and col_fecha:
         df = df[df[col_fecha] >= pd.to_datetime(desde, errors="coerce")]
     if hasta and col_fecha:
@@ -399,7 +531,7 @@ def organismos(top: int = Query(20, le=100)):
     if df.empty:
         return {"data": []}
 
-    col_org   = _col(df, ["organismo_contratante", "organismo"])
+    col_org   = _col(df, ["organismo_base", "organismo_contratante", "organismo"])
     col_monto = _col(df, ["monto_adjudicado_bora", "monto_adjudicado"])
     col_cuit  = _col(df, ["cuit_proveedor", "cuit"])
     col_cobro = _col(df, ["cobro_en_tgn"])
@@ -407,6 +539,7 @@ def organismos(top: int = Query(20, le=100)):
     if not col_org:
         return {"data": []}
 
+    df = df.copy()
     df["_monto"] = df[col_monto].apply(_parsear_monto) if col_monto else 0
 
     grp = df.groupby(col_org).agg(
@@ -414,92 +547,169 @@ def organismos(top: int = Query(20, le=100)):
         monto_total=("_monto", "sum"),
         proveedores_distintos=(col_cuit, "nunique") if col_cuit else ("_monto", "count"),
         cobraron_tgn=(col_cobro, lambda x: (x == "✅ SÍ").sum()) if col_cobro else ("_monto", "count"),
-    ).reset_index().sort_values("monto_total", ascending=False).head(top)
+    ).reset_index()
+    # Solo ~1 de cada 9 avisos trae monto: a igual monto se ordena por cantidad
+    grp = grp.sort_values(["monto_total", "adjudicaciones"], ascending=False).head(top)
 
     grp.columns = ["organismo", "adjudicaciones", "monto_total", "proveedores_distintos", "cobraron_tgn"]
     return {"data": grp.fillna(0).to_dict(orient="records")}
 
 
-@app.get("/api/organismos/{nombre}")
-def perfil_organismo(nombre: str):
+def _resolver_organismos(df: pd.DataFrame, nombre: str, agrupar: bool = False) -> dict:
+    """
+    Decide qué organismos abarca una búsqueda. Devuelve {"incluidos": [...]} o
+    {"ambiguo": True, "coincidencias": [...]} o {"no_encontrado": True, "sugerencias": [...]}.
+
+    Antes se tomaba toda fila cuyo nombre CONTUVIERA el texto (como expresión
+    regular y distinguiendo acentos): "AGENCIA DE RECAUDACIÓN Y CONTROL ADUANERO"
+    sumaba sus 20 direcciones regionales (160 contratos en lugar de 15), y
+    "economia" o "ANSES" no encontraban nada.
+    """
+    bases = df["organismo_base"].value_counts()
+    norm = {b: _norm(b) for b in bases.index}
+    q = _norm(_expandir_sigla(nombre))
+    if not q:
+        return {"no_encontrado": True, "sugerencias": []}
+    exactos = [b for b, n in norm.items() if n == q]
+    if exactos and not agrupar:
+        return {"incluidos": exactos}
+    candidatos = [b for b, n in norm.items() if q in n]
+    if not candidatos:
+        import difflib
+        sug = difflib.get_close_matches(q, list(norm.values()), n=5, cutoff=0.5)
+        inverso = {n: b for b, n in norm.items()}
+        return {"no_encontrado": True, "sugerencias": [inverso[s] for s in sug]}
+    if len(candidatos) == 1 or agrupar:
+        return {"incluidos": candidatos}
+    return {"ambiguo": True, "coincidencias": [
+        {"organismo": b, "contratos": int(bases[b])}
+        for b in sorted(candidatos, key=lambda b: -int(bases[b]))[:40]
+    ]}
+
+
+def _perfil_organismo(nombre: str, agrupar: bool = False):
     registrar_visita("perfil_organismo")
     try:
         df = _cargar_df()
         if df.empty:
             raise HTTPException(404, "Sin datos")
-
-        col_org = _col(df, ["organismo_contratante", "organismo"])
-        if not col_org:
+        if "organismo_base" not in df.columns:
             raise HTTPException(404, "Columna organismo no encontrada")
 
-        df_org = df[df[col_org].str.contains(nombre, case=False, na=False)].copy()
-        if df_org.empty:
-            raise HTTPException(404, f"Organismo '{nombre}' no encontrado")
+        r = _resolver_organismos(df, nombre, agrupar)
+        if r.get("no_encontrado"):
+            sug = r["sugerencias"]
+            detalle = f"Organismo '{nombre}' no encontrado."
+            if sug:
+                detalle += " ¿Quisiste decir: " + " · ".join(sug) + "?"
+            raise HTTPException(404, detalle)
+        if r.get("ambiguo"):
+            return {"ambiguo": True, "consulta": nombre, "coincidencias": r["coincidencias"]}
+
+        df_org = df[df["organismo_base"].isin(r["incluidos"])].copy()
 
         col_monto  = _col(df_org, ["monto_adjudicado_bora", "monto_adjudicado"])
         col_cuit   = _col(df_org, ["cuit_proveedor", "cuit"])
-        col_cobro  = _col(df_org, ["cobro_en_tgn"])
-        col_riesgo = _col(df_org, ["nivel_riesgo_licit"])
         col_fecha  = _col(df_org, ["fecha", "fecha_publicacion"])
+        col_prov   = _col(df_org, ["proveedor_adjudicado", "proveedor_nombre"])
 
-        df_org["_monto"] = df_org[col_monto].apply(_parsear_monto) if col_monto else 0
+        df_org["_monto"] = df_org[col_monto].apply(_parsear_monto) if col_monto else 0.0
+        con_cuit = df_org[df_org[col_cuit].astype(str).str.strip() != ""] if col_cuit else df_org.iloc[0:0]
 
-        # HHI por proveedor
-        hhi = 0.0
-        if col_cuit:
-            por_cuit = df_org.groupby(col_cuit)["_monto"].sum()
-            total_m  = por_cuit.sum()
-            if total_m > 0:
-                hhi = float(((por_cuit / total_m * 100) ** 2).sum())
+        # HHI de proveedores: solo avisos con CUIT (antes los "sin CUIT" contaban
+        # como un único proveedor gigante). Si casi no hay montos, se calcula por
+        # cantidad de adjudicaciones y se informa la base usada.
+        hhi, hhi_base = 0.0, "monto"
+        if not con_cuit.empty:
+            por_monto = con_cuit.groupby(col_cuit)["_monto"].sum()
+            con_monto = (con_cuit["_monto"] > 0).mean()
+            if por_monto.sum() > 0 and con_monto >= 0.5:
+                participacion = por_monto / por_monto.sum() * 100
+            else:
+                hhi_base = "cantidad"
+                por_cant = con_cuit.groupby(col_cuit).size()
+                participacion = por_cant / por_cant.sum() * 100
+            hhi = float((participacion ** 2).sum())
 
-        # Top proveedores
         top_provs = []
-        if col_cuit:
-            col_prov = _col(df_org, ["proveedor_adjudicado", "proveedor_nombre"])
-            grp_p = df_org.groupby(col_cuit).agg(
+        if not con_cuit.empty:
+            grp_p = con_cuit.groupby(col_cuit).agg(
                 contratos=("_monto", "count"),
                 monto=("_monto", "sum"),
                 nombre=(col_prov, "first") if col_prov else ("_monto", "count"),
-            ).reset_index().sort_values("monto", ascending=False).head(10)
+            ).reset_index().sort_values(["monto", "contratos"], ascending=False).head(10)
             top_provs = grp_p.fillna("").to_dict(orient="records")
 
-        # Evolución mensual
         evol = []
         if col_fecha:
-            df_org["_mes"] = df_org[col_fecha].dt.to_period("M").astype(str)
-            evol = df_org.groupby("_mes")["_monto"].sum().reset_index()
-            evol.columns = ["mes", "monto"]
-            evol = evol.to_dict(orient="records")
+            meses = df_org[col_fecha].dt.to_period("M").astype(str)
+            evol = (df_org.assign(_mes=meses).groupby("_mes")
+                    .agg(monto=("_monto", "sum"), contratos=("_monto", "count"))
+                    .reset_index().rename(columns={"_mes": "mes"}))
+            evol = evol[evol["mes"] != "NaT"].to_dict(orient="records")
 
-        # Red flags
         flags = {}
         if "indicadores_riesgo" in df_org.columns:
+            from collections import Counter
             todos = []
             for f in df_org["indicadores_riesgo"].dropna():
                 todos.extend([x.strip() for x in str(f).split("|") if "⚠️" in x])
-            from collections import Counter
             flags = dict(Counter(todos).most_common(10))
 
-        # Serializar fechas para tabla
+        if col_fecha:
+            df_org = df_org.sort_values(col_fecha, ascending=False, na_position="last")
         for c in df_org.select_dtypes(include=["datetime64"]).columns:
             df_org[c] = df_org[c].dt.strftime("%Y-%m-%d")
 
-        return {
-            "organismo":           nombre,
+        incluidos = r["incluidos"]
+        return _json_seguro({
+            "organismo":           incluidos[0] if len(incluidos) == 1 else nombre,
+            "organismos_incluidos": incluidos,
             "total_contratos":     len(df_org),
-            "monto_total":         round(df_org["_monto"].sum(), 2),
-            "proveedores_unicos":  int(df_org[col_cuit].nunique()) if col_cuit else 0,
+            "contratos_sin_cuit":  int(len(df_org) - len(con_cuit)),
+            "contratos_con_monto": int((df_org["_monto"] > 0).sum()),
+            "monto_total":         round(float(df_org["_monto"].sum()), 2),
+            "proveedores_unicos":  int(con_cuit[col_cuit].nunique()) if col_cuit else 0,
             "hhi":                 round(hhi, 1),
+            "hhi_base":            hhi_base,
             "hhi_interpretacion":  "Alta concentración" if hhi >= 2500 else ("Moderada" if hhi >= 1500 else "Competitivo"),
             "top_proveedores":     top_provs,
             "evolucion_mensual":   evol,
             "red_flags":           flags,
-            "contratos":           df_org.fillna("").head(200).to_dict(orient="records"),
-        }
+            "contratos":           df_org.drop(columns=["_monto"]).fillna("").head(200).to_dict(orient="records"),
+        })
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Error interno en perfil_organismo({nombre!r}): {type(e).__name__}: {e}")
+
+
+@app.get("/api/organismo")
+def perfil_organismo_query(nombre: str = Query(..., min_length=1), agrupar: bool = Query(False)):
+    """
+    Perfil de un organismo por nombre (sin distinguir acentos; acepta siglas como
+    ANSES o ARCA). Con agrupar=true suma todas las coincidencias (por ejemplo,
+    todas las direcciones regionales de ARCA). Si hay varias y no se agrupa,
+    devuelve {"ambiguo": true, "coincidencias": [...]} para elegir.
+    Se pasa por parámetro y no en la ruta porque hay nombres con "/".
+    """
+    return _perfil_organismo(nombre, agrupar)
+
+
+@app.get("/api/organismos/lista")
+def lista_organismos():
+    """Nombres de organismos (normalizados) con su cantidad de avisos, para autocompletar."""
+    df = _cargar_df()
+    if df.empty or "organismo_base" not in df.columns:
+        return {"data": []}
+    vc = df["organismo_base"].value_counts()
+    return {"data": [{"organismo": k, "contratos": int(v)} for k, v in vc.items()]}
+
+
+@app.get("/api/organismos/{nombre}")
+def perfil_organismo(nombre: str, agrupar: bool = Query(False)):
+    """Compatibilidad: igual que /api/organismo?nombre=… (no admite nombres con "/")."""
+    return _perfil_organismo(nombre, agrupar)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -550,9 +760,12 @@ def proveedores(
     grp = grp.rename(columns={col_cuit: "cuit"})
 
     if busqueda:
-        mask = grp["cuit"].str.contains(busqueda, case=False, na=False)
+        # Literal y sin acentos; el CUIT se compara solo por dígitos (con o sin guiones)
+        digitos = _solo_digitos(busqueda)
+        mask = (grp["cuit"].map(_solo_digitos).str.contains(digitos, regex=False) if digitos
+                else pd.Series(False, index=grp.index))
         if "nombre" in grp.columns:
-            mask |= grp["nombre"].str.contains(busqueda, case=False, na=False)
+            mask = mask | _contiene(grp["nombre"], busqueda)
         grp = grp[mask]
 
     orden_col = {"monto_tgn": "monto_tgn", "monto_adj": "monto_adj",
@@ -585,19 +798,22 @@ def perfil_proveedor(cuit: str):
 
         col_monto = _col(df_prov, ["monto_adjudicado_bora", "monto_adjudicado"])
         col_tgn   = None  # el monto TGN es del organismo, no de este proveedor
-        col_org   = _col(df_prov, ["organismo_contratante", "organismo"])
+        col_org   = _col(df_prov, ["organismo_base", "organismo_contratante", "organismo"])
         col_fecha = _col(df_prov, ["fecha", "fecha_publicacion"])
         col_prov  = _col(df_prov, ["proveedor_adjudicado", "proveedor_nombre"])
 
-        df_prov["_monto"] = df_prov[col_monto].apply(_parsear_monto) if col_monto else 0
-        df_prov["_tgn"]   = df_prov[col_tgn].apply(_parsear_monto)   if col_tgn   else 0
+        df_prov["_monto"] = df_prov[col_monto].apply(_parsear_monto) if col_monto else 0.0
+        df_prov["_tgn"]   = df_prov[col_tgn].apply(_parsear_monto)   if col_tgn   else 0.0
 
-        nombre = df_prov[col_prov].dropna().mode().iloc[0] if col_prov and not df_prov[col_prov].dropna().empty else cuit
+        nombres = df_prov[col_prov].astype(str).str.strip() if col_prov else pd.Series(dtype=str)
+        nombres = nombres[nombres != ""]
+        nombre = nombres.mode().iloc[0] if not nombres.empty else cuit
 
         # Organismos contratantes
         top_orgs = []
         if col_org:
-            top_orgs = df_prov.groupby(col_org)["_monto"].sum().sort_values(ascending=False).head(10).reset_index().to_dict(orient="records")
+            top_orgs = (df_prov.groupby(col_org)["_monto"].sum().sort_values(ascending=False).head(10)
+                        .reset_index().rename(columns={col_org: "organismo"}).to_dict(orient="records"))
 
         # Evolución mensual
         evol = []
@@ -617,18 +833,21 @@ def perfil_proveedor(cuit: str):
         for c in df_prov.select_dtypes(include=["datetime64"]).columns:
             df_prov[c] = df_prov[c].dt.strftime("%Y-%m-%d")
 
-        return {
+        # _json_seguro: "monto_cobrado_tgn" quedaba como numpy.int64 (la columna _tgn es
+        # 0 desde que se dejó de atribuir TGN por proveedor) y FastAPI no podía
+        # serializarlo: TODOS los perfiles de proveedor respondían error 500.
+        return _json_seguro({
             "cuit":            cuit,
             "nombre":          nombre,
             "total_contratos": len(df_prov),
-            "monto_adjudicado": round(df_prov["_monto"].sum(), 2),
-            "monto_cobrado_tgn": round(df_prov["_tgn"].sum(), 2),
+            "monto_adjudicado": round(float(df_prov["_monto"].sum()), 2),
+            "monto_cobrado_tgn": round(float(df_prov["_tgn"].sum()), 2),
             "organismos_unicos": int(df_prov[col_org].nunique()) if col_org else 0,
             "top_organismos":  top_orgs,
             "evolucion_mensual": evol,
             "red_flags":       flags,
-            "contratos":       df_prov.fillna("").head(200).to_dict(orient="records"),
-        }
+            "contratos":       df_prov.drop(columns=["_monto", "_tgn", "_mes"], errors="ignore").fillna("").head(200).to_dict(orient="records"),
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -735,6 +954,58 @@ def monitor():
 # API — LICITACIONES/DATOS  (consumido por repo monitor / IRI)
 # ─────────────────────────────────────────────────────────────────────────────
 
+@app.get("/api/sin-cuit")
+def sin_cuit(
+    organismo: str | None = Query(None),
+    limit:     int        = Query(100, le=1000),
+    offset:    int        = Query(0),
+):
+    """
+    Adjudicaciones cuyo CUIT no se pudo extraer del aviso del BORA. No aparecen en
+    Proveedores (que agrupa por CUIT), así que acá se listan con el enlace al aviso
+    para revisarlas a mano. Algunas traen igual el nombre del proveedor.
+    """
+    registrar_visita("sin_cuit")
+    df = _cargar_df()
+    col_cuit = _col(df, ["cuit_proveedor", "cuit"]) if not df.empty else None
+    if not col_cuit:
+        return {"total": 0, "data": [], "por_organismo": [], "por_mes": []}
+    total_general = len(df)
+    df = df[df[col_cuit].astype(str).str.strip() == ""].copy()
+    if "cancelada" in df.columns:
+        df = df[~df["cancelada"].astype(str).str.lower().isin(["true", "1"])]
+    if organismo:
+        df = df[_contiene(df["organismo_base"], _expandir_sigla(organismo))]
+    col_prov = _col(df, ["proveedor_adjudicado"])
+    col_monto = _col(df, ["monto_adjudicado_bora", "monto_adjudicado"])
+    con_nombre = int((df[col_prov].astype(str).str.strip() != "").sum()) if col_prov else 0
+
+    por_org = df["organismo_base"].value_counts().head(20)
+    meses = df["fecha"].dt.to_period("M").astype(str) if "fecha" in df.columns else pd.Series(dtype=str)
+    por_mes = meses[meses != "NaT"].value_counts().sort_index()
+
+    df = df.sort_values("fecha", ascending=False, na_position="last") if "fecha" in df.columns else df
+    filas = []
+    for _, r in df.iloc[offset: offset + limit].iterrows():
+        filas.append({
+            "fecha":      r["fecha"].strftime("%Y-%m-%d") if pd.notna(r.get("fecha")) else "",
+            "organismo":  r.get("organismo_base", ""),
+            "tipo":       r.get("tipo_proceso_bora", "") or r.get("tipo_proceso", ""),
+            "proveedor":  r.get(col_prov, "") if col_prov else "",
+            "monto":      r.get(col_monto, "") if col_monto else "",
+            "link_bora":  r.get("link_bora", ""),
+        })
+    return _json_seguro({
+        "total":          len(df),
+        "porcentaje":     round(len(df) / total_general * 100, 1) if total_general else 0,
+        "con_nombre_proveedor": con_nombre,
+        "por_organismo":  [{"organismo": k, "avisos": int(v)} for k, v in por_org.items()],
+        "por_mes":        [{"mes": k, "avisos": int(v)} for k, v in por_mes.items()],
+        "limit": limit, "offset": offset,
+        "data":           filas,
+    })
+
+
 @app.get("/api/licitaciones/datos")
 def licitaciones_datos(fecha: str | None = Query(None)):
     """
@@ -828,10 +1099,25 @@ def licitaciones_datos(fecha: str | None = Query(None)):
 # API — STATS Y REFRESH
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Clave propia para ver las estadísticas de uso. Así se puede compartir el acceso a
+# las estadísticas sin entregar REFRESH_TOKEN (que además dispara el scraping).
+# Se configura en Railway → Variables → STATS_KEY. ADMIN_KEY y REFRESH_TOKEN
+# siguen funcionando, para no romper accesos existentes.
+STATS_KEY = os.getenv("STATS_KEY", "")
+
+
+def _clave_stats_valida(clave: str | None) -> bool:
+    import secrets as _s
+    if not clave:
+        return False
+    validas = [k for k in (STATS_KEY, ADMIN_KEY, REFRESH_TOKEN) if k]
+    return any(_s.compare_digest(clave.encode(), k.encode()) for k in validas)
+
+
 @app.get("/api/stats")
-def stats(x_refresh_token: str = Header(None)):
-    if x_refresh_token not in (REFRESH_TOKEN, ADMIN_KEY):
-        raise HTTPException(status_code=401, detail="Token inválido")
+def stats(x_refresh_token: str = Header(None), x_stats_key: str = Header(None)):
+    if not (_clave_stats_valida(x_stats_key) or _clave_stats_valida(x_refresh_token)):
+        raise HTTPException(status_code=401, detail="Clave inválida")
     return get_stats()
 
 

@@ -498,6 +498,7 @@
 
     /* ── MANUAL ── */
     .manual-content { max-width: 800px; }
+    #sec-manual .lang-tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
     .manual-content h2 {
       font-family: var(--display);
       font-size: 18px;
@@ -637,6 +638,9 @@
     <a class="nav-item" data-section="proveedores" onclick="nav('proveedores',this)">
       <span class="nav-icon">🏢</span> Proveedores
     </a>
+    <a class="nav-item" data-section="sincuit" onclick="nav('sincuit',this)">
+      <span class="nav-icon">⚠️</span> Sin CUIT
+    </a>
     <a class="nav-item" data-section="monitor" onclick="nav('monitor',this)">
       <span class="nav-icon">🔍</span> Monitor
     </a>
@@ -700,8 +704,8 @@
         <div class="section-sub">FLUJO DIARIO BORA → COMPRAR → TGN CON TRAZABILIDAD COMPLETA</div>
       </div>
       <div class="filters">
-        <input id="f-organismo" type="text" placeholder="Organismo…">
-        <input id="f-cuit" type="text" placeholder="CUIT proveedor…">
+        <input id="f-organismo" type="text" placeholder="Organismo o sigla (ANSES, ARCA…)">
+        <input id="f-cuit" type="text" placeholder="CUIT (con o sin guiones)…">
         <select id="f-riesgo">
           <option value="">Todos los riesgos</option>
           <option value="Alto">🔴 Alto</option>
@@ -763,8 +767,13 @@
       <div class="card">
         <div class="card-title">🔎 Perfil individual</div>
         <div class="profile-search">
-          <input id="org-search" type="text" placeholder="Buscar organismo por nombre…">
+          <input id="org-search" type="text" list="org-lista" autocomplete="off"
+                 placeholder="Nombre o sigla del organismo (ej.: Ejército, ANSES, ARCA)…">
+          <datalist id="org-lista"></datalist>
           <button class="btn" onclick="buscarOrganismo()">Ver perfil</button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin:-4px 0 12px">
+          No importan los acentos ni las mayúsculas. También podés hacer clic en una barra del gráfico.
         </div>
         <div id="org-perfil"></div>
       </div>
@@ -806,11 +815,32 @@
       <div id="prov-perfil" style="margin-top:20px;"></div>
     </div>
 
+    <!-- ── SIN CUIT ── -->
+    <div id="sec-sincuit" class="section">
+      <div class="section-header">
+        <div class="section-title">⚠️ <span>Sin CUIT</span></div>
+        <div class="section-sub">ADJUDICACIONES CUYO CUIT NO SE PUDO LEER DEL AVISO · REVISIÓN MANUAL</div>
+      </div>
+      <div class="filters">
+        <input id="sc-organismo" type="text" placeholder="Filtrar por organismo o sigla…">
+        <button class="btn" onclick="cargarSinCuit()">Buscar</button>
+      </div>
+      <div id="sincuit-resumen"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Organismo</th><th>Tipo</th><th>Proveedor (si se leyó)</th><th>Monto</th><th>Aviso</th></tr></thead>
+          <tbody id="sincuit-tbody">
+            <tr><td colspan="6"><div class="loading"><div class="spinner"></div> Cargando…</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ── MONITOR ── -->
     <div id="sec-monitor" class="section">
       <div class="section-header">
         <div class="section-title">🔍 <span>Monitor</span> Sistémico</div>
-        <div class="section-sub">HHI · FRAGMENTACIÓN · PROVEEDOR ÚNICO · ADJUDICADOS SIN COBRO TGN</div>
+        <div class="section-sub">HHI · FRAGMENTACIÓN · PROVEEDOR ÚNICO</div>
       </div>
       <div class="tab-row">
         <button class="tab-btn active" onclick="tabMonitor('fragmentacion',this)">🔪 Fragmentación</button>
@@ -839,7 +869,7 @@
         <div class="section-sub">VISITAS POR SECCIÓN · CONSULTAS DE DONACIÓN</div>
       </div>
       <div class="filters">
-        <input id="stats-token" type="password" placeholder="Token de acceso…">
+        <input id="stats-token" type="password" placeholder="Clave de estadísticas…">
         <button class="btn" onclick="cargarStats()">Ver estadísticas</button>
       </div>
       <div id="stats-content"></div>
@@ -849,23 +879,40 @@
     <div id="sec-manual" class="section">
       <div class="section-header">
         <div class="section-title">📖 Manual de <span>Uso</span></div>
-        <div class="section-sub">GUÍA COMPLETA DEL SISTEMA · METODOLOGÍA MONTEVERDE</div>
+        <div class="section-sub">GUÍA COMPLETA DEL SISTEMA · USER GUIDE (ES / EN)</div>
       </div>
-      <div class="manual-content">
-        <h2>¿Qué es este sistema?</h2>
-        <p>Monitor de Contratos es un sistema de detección automática de fenómenos corruptivos legales basado en la <strong>Teoría de Fenómenos Corruptivos</strong> del Ph.D. Vicente Humberto Monteverde (Journal of Financial Crime, 2020).</p>
-        <p>El sistema cruza tres fuentes oficiales del Estado Nacional argentino para trazar el flujo completo de un contrato: desde su publicación en el Boletín Oficial hasta el pago efectivo en la Tesorería General de la Nación.</p>
+      <div class="lang-tabs">
+        <button class="tab-btn active" data-lang="es" onclick="manualIdioma('es')">🇦🇷 Español</button>
+        <button class="tab-btn" data-lang="en" onclick="manualIdioma('en')">🇬🇧 English</button>
+      </div>
 
-        <h2>Flujo de datos</h2>
+      <div class="manual-content" id="manual-es" lang="es">
+        <h2>¿Qué es este sistema?</h2>
+        <p>Monitor de Contratos es una herramienta de transparencia basada en la <strong>Teoría de Fenómenos Corruptivos</strong> de Vicente Humberto Monteverde, Ph.D. (Journal of Financial Crime, 2020). Lee todos los días hábiles las adjudicaciones publicadas en el Boletín Oficial, las cruza con Comprar.gob.ar y con la Tesorería General de la Nación, y señala patrones que merecen revisión.</p>
+        <p><strong>No detecta delitos</strong> ni atribuye responsabilidades: sus resultados son indicadores algorítmicos de riesgo.</p>
+
+        <h2>Fuentes de datos y sus límites</h2>
         <ul>
-          <li><strong>BORA (Boletín Oficial)</strong> — Se extrae el índice de la Sección Tercera diariamente. Para cada adjudicación se descarga el aviso en PDF y se extraen CUIT, proveedor y monto mediante expresiones regulares.</li>
-          <li><strong>Comprar.gob.ar</strong> — Portal de contrataciones electrónicas de la ONC. Se extraen los procesos abiertos del día con organismo, tipo de procedimiento y número de proceso.</li>
-          <li><strong>TGN (Presupuesto Abierto)</strong> — API oficial del Ministerio de Economía. Se descarga el crédito ejecutado por organismo para confirmar qué jurisdicciones pagaron efectivamente.</li>
+          <li><strong>BORA (Boletín Oficial), Sección Tercera</strong> — índice diario de avisos. De cada adjudicación se descarga el PDF y se extraen CUIT, proveedor y monto. La extracción no siempre funciona: más de la mitad de los avisos queda sin CUIT y la mayoría sin monto (ver la sección <em>Sin CUIT</em>).</li>
+          <li><strong>Comprar.gob.ar</strong> — procesos abiertos del día (organismo, tipo de procedimiento, número de proceso).</li>
+          <li><strong>TGN (Presupuesto Abierto)</strong> — crédito pagado en el año por cada organismo. No informa el CUIT del beneficiario: <strong>no permite saber si un proveedor puntual cobró</strong>. Las etiquetas "BORA + TGN" indican que el organismo tiene pagos, no que este contrato se haya pagado.</li>
         </ul>
 
-        <h2>Los 7 Escenarios de Monteverde</h2>
+        <h2>Cómo se mide el riesgo</h2>
         <table class="escenario-table">
-          <thead><tr><th>Escenario</th><th>Transferencia</th><th>Peso XAI</th></tr></thead>
+          <thead><tr><th>Indicador</th><th>Puntos</th></tr></thead>
+          <tbody>
+            <tr><td>Contratación directa</td><td>3</td></tr>
+            <tr><td>Monto hasta un 10% por debajo de un tope que obliga a un procedimiento más competitivo (1.000 o 5.000 módulos)</td><td>2</td></tr>
+            <tr><td>Redeterminación de precios</td><td>2</td></tr>
+          </tbody>
+        </table>
+        <p>Nivel: <strong>Alto</strong> desde 5 puntos, <strong>Medio</strong> desde 2, <strong>Bajo</strong> por debajo de 2. "CUIT no extraído" se muestra como dato informativo y no suma puntos. Bajo no significa "sin riesgo": significa que no se activó ningún indicador.</p>
+
+        <h2>Los 7 escenarios de Monteverde</h2>
+        <p>Cada aviso se clasifica además en el escenario de transferencia regresiva que mejor describe (columna <code>Escenario</code>):</p>
+        <table class="escenario-table">
+          <thead><tr><th>Escenario</th><th>Transferencia</th><th>Peso</th></tr></thead>
           <tbody>
             <tr><td>Jubilaciones / Pensiones</td><td>Jubilados → Estado</td><td>10</td></tr>
             <tr><td>Privatización / Concesión</td><td>Estado → Privados</td><td>9</td></tr>
@@ -877,34 +924,95 @@
           </tbody>
         </table>
 
-        <h2>Sección Contratos</h2>
+        <h2>Secciones</h2>
         <ul>
-          <li>Filtrá por organismo, CUIT, nivel de riesgo, estado de flujo o rango de fechas.</li>
-          <li>La columna <code>Flujo</code> indica si el contrato tiene trazabilidad completa BORA→TGN.</li>
-          <li>La columna <code>Escenario</code> muestra la clasificación según la Matriz XAI Monteverde.</li>
+          <li><strong>Resumen</strong> — totales de todo el período, distribución de riesgo y contratos por mes.</li>
+          <li><strong>Contratos</strong> — todas las adjudicaciones, de la más reciente a la más antigua. Filtros: organismo (sin importar acentos; acepta siglas como ANSES, ARCA o PFA), CUIT (con o sin guiones, completo o parcial), nivel de riesgo, estado del flujo ("Sin CUIT" muestra todos los avisos sin CUIT) y rango de fechas. Enter también busca.</li>
+          <li><strong>Organismos</strong> — ranking por monto adjudicado (y por cantidad cuando no hay monto). En <em>Perfil individual</em> escribí el nombre o la sigla y elegí de la lista; si hay varias coincidencias (por ejemplo, las direcciones regionales de ARCA) podés abrir una o verlas todas juntas. También podés hacer clic en una barra del gráfico. El <strong>HHI</strong> mide la concentración de proveedores: más de 2.500 es alta concentración. Se calcula por monto cuando hay montos suficientes y, si no, por cantidad de adjudicaciones; el perfil indica cuál usó.</li>
+          <li><strong>Proveedores</strong> — adjudicaciones agrupadas por CUIT. Buscá por CUIT (con o sin guiones) o por nombre. La columna "Cobrado TGN" figura como n/d porque la Tesorería no informa pagos por CUIT.</li>
+          <li><strong>Sin CUIT</strong> — avisos cuyo CUIT no se pudo leer, con el enlace al BORA para revisarlos. No aparecen en Proveedores.</li>
+          <li><strong>Monitor</strong> — <em>Fragmentación</em>: organismos con varios contratos de hasta 1.000 módulos (unos $50 millones), posible división para evitar un procedimiento más competitivo. <em>Proveedor único</em>: organismos que adjudicaron siempre al mismo CUIT. <em>HHI</em>: concentración por organismo. <em>Sin cobro TGN</em>: desactivado, por el límite de la Tesorería explicado arriba.</li>
+          <li><strong>Estadísticas</strong> — visitas por sección y por día. Requiere la clave de estadísticas.</li>
         </ul>
 
-        <h2>Sección Organismos</h2>
+        <h2>Otras señales</h2>
         <ul>
-          <li>Ranking por monto adjudicado acumulado en todo el período histórico.</li>
-          <li>El perfil individual muestra el <strong>Índice HHI</strong> de concentración de proveedores. Un HHI &gt; 2500 indica alta concentración (posible captura del organismo).</li>
+          <li><strong>🌍 ALERTA</strong> — el CUIT figura en bases de sanciones internacionales (servicio MEACI).</li>
+          <li><strong>🤖 Explicar con IA</strong> — redacta en lenguaje simple por qué un perfil o una alerta llamó la atención. Hasta 3 consultas por día por visitante; no cambia ningún indicador.</li>
         </ul>
 
-        <h2>Sección Proveedores</h2>
-        <ul>
-          <li>Diferencial único: muestra quién <strong>cobró</strong> (TGN), no solo quién ganó la licitación.</li>
-          <li>Buscá por CUIT o nombre de empresa para ver el perfil completo con todos los organismos contratantes.</li>
-        </ul>
+        <h2>Actualización</h2>
+        <p>Los datos se actualizan solos de lunes a viernes a las 09:00 (con un reintento a las 12:00, hora de Argentina). Los días sin edición del Boletín Oficial no hay datos nuevos.</p>
 
-        <h2>Sección Monitor</h2>
-        <ul>
-          <li><strong>Fragmentación</strong>: organismos con múltiples contratos de bajo monto, posiblemente divididos para evitar el umbral de licitación pública ($10M ARS).</li>
-          <li><strong>Proveedor Único</strong>: organismos que adjudican siempre al mismo CUIT — señal de captura.</li>
-          <li><strong>HHI</strong>: Índice Herfindahl-Hirschman de concentración de mercado por organismo.</li>
-          <li><strong>Sin cobro TGN</strong>: desactivado — la Tesorería publica pagos por organismo, no por CUIT, así que no se puede saber si un proveedor cobró.</li>
-        </ul>
+        <h2>Aviso</h2>
+        <p>Herramienta experimental y académica. Los datos provienen de fuentes públicas oficiales. Los resultados son indicadores algorítmicos de riesgo: no implican juicio de valor, acusación ni determinación de responsabilidad sobre ninguna empresa, organismo o persona. Antes de sacar conclusiones, consultá el aviso original del BORA (enlace ↗ en cada fila).</p>
 
         <h2>Referencia académica</h2>
+        <p>Monteverde, V. H. (2020). <em>Great corruption – theory of corrupt phenomena</em>. Journal of Financial Crime, Vol. 28 No. 2, pp. 580-595. <a href="https://doi.org/10.1108/JFC-04-2020-0062" target="_blank" style="color:var(--accent2)">https://doi.org/10.1108/JFC-04-2020-0062</a></p>
+      </div>
+
+      <div class="manual-content" id="manual-en" lang="en" style="display:none">
+        <h2>What is this system?</h2>
+        <p>Contracts Monitor is a transparency tool based on the <strong>Theory of Corrupt Phenomena</strong> by Vicente Humberto Monteverde, PhD (Journal of Financial Crime, 2020). Every business day it reads the contract awards published in Argentina's Official Gazette (BORA), cross-references them with the Comprar.gob.ar procurement portal and the National Treasury (TGN), and flags patterns that deserve a closer look.</p>
+        <p><strong>It does not detect crimes</strong> or assign responsibility: its results are algorithmic risk indicators.</p>
+
+        <h2>Data sources and their limits</h2>
+        <ul>
+          <li><strong>BORA (Official Gazette), Third Section</strong> — the daily index of notices. For each award the PDF is downloaded and the vendor's CUIT (tax ID), name and amount are extracted. Extraction does not always work: more than half of the notices end up without a CUIT and most without an amount (see the <em>Sin CUIT</em> section).</li>
+          <li><strong>Comprar.gob.ar</strong> — the day's open procurement processes (agency, procedure type, process number).</li>
+          <li><strong>TGN (Presupuesto Abierto, the open budget portal)</strong> — credit paid during the year by each agency. It does not report the payee's CUIT, so <strong>it cannot tell whether a specific vendor was paid</strong>. "BORA + TGN" labels mean the agency has payments, not that this contract was paid.</li>
+        </ul>
+
+        <h2>How risk is measured</h2>
+        <table class="escenario-table">
+          <thead><tr><th>Indicator</th><th>Points</th></tr></thead>
+          <tbody>
+            <tr><td>Direct award</td><td>3</td></tr>
+            <tr><td>Amount up to 10% below a threshold that would require a more competitive procedure (1,000 or 5,000 modules)</td><td>2</td></tr>
+            <tr><td>Price redetermination</td><td>2</td></tr>
+          </tbody>
+        </table>
+        <p>Level: <strong>High</strong> from 5 points, <strong>Medium</strong> from 2, <strong>Low</strong> below 2. "CUIT not extracted" is shown for information and adds no points. Low does not mean "no risk": it means no indicator was triggered.</p>
+
+        <h2>Monteverde's 7 scenarios</h2>
+        <p>Each notice is also classified into the regressive-transfer scenario that best describes it (the <code>Escenario</code> column):</p>
+        <table class="escenario-table">
+          <thead><tr><th>Scenario</th><th>Transfer</th><th>Weight</th></tr></thead>
+          <tbody>
+            <tr><td>Retirement / Pensions</td><td>Retirees → State</td><td>10</td></tr>
+            <tr><td>Privatization / Concession</td><td>State → Private sector</td><td>9</td></tr>
+            <tr><td>Tax Shifting</td><td>Taxpayers → State</td><td>9</td></tr>
+            <tr><td>Public Works / Contracts</td><td>State → Contractors</td><td>8</td></tr>
+            <tr><td>Public Utility Tariffs</td><td>Users → Utility companies</td><td>7</td></tr>
+            <tr><td>Regulated Prices</td><td>Consumers → Producers</td><td>6</td></tr>
+            <tr><td>Wages and Collective Bargaining</td><td>Employees → Employers</td><td>5</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Sections</h2>
+        <ul>
+          <li><strong>Resumen (Summary)</strong> — totals for the whole period, risk distribution and contracts per month.</li>
+          <li><strong>Contratos (Contracts)</strong> — every award, newest first. Filters: agency (accent-insensitive; accepts acronyms such as ANSES, ARCA or PFA), CUIT (with or without dashes, full or partial), risk level, flow status ("Sin CUIT" shows every notice without a CUIT) and date range. Pressing Enter also searches.</li>
+          <li><strong>Organismos (Agencies)</strong> — ranking by awarded amount (and by count when there is no amount). Under <em>Perfil individual</em>, type the name or acronym and pick from the list; when there are several matches (for example, ARCA's regional offices) you can open one or view them all together. You can also click a bar in the chart. <strong>HHI</strong> measures vendor concentration: above 2,500 is high concentration. It uses amounts when enough are available and award counts otherwise; the profile says which.</li>
+          <li><strong>Proveedores (Vendors)</strong> — awards grouped by CUIT. Search by CUIT (with or without dashes) or by name. "Cobrado TGN" shows n/a because the Treasury does not report payments per CUIT.</li>
+          <li><strong>Sin CUIT (No CUIT)</strong> — notices whose CUIT could not be read, with a link to the BORA notice for manual review. They do not appear under Vendors.</li>
+          <li><strong>Monitor</strong> — <em>Fragmentation</em>: agencies with several contracts of up to 1,000 modules (about ARS 50 million), a possible split to avoid a more competitive procedure. <em>Single vendor</em>: agencies that always awarded to the same CUIT. <em>HHI</em>: concentration per agency. <em>No TGN payment</em>: disabled, because of the Treasury limitation explained above.</li>
+          <li><strong>Estadísticas (Usage statistics)</strong> — visits per section and per day. Requires the statistics key.</li>
+        </ul>
+
+        <h2>Other signals</h2>
+        <ul>
+          <li><strong>🌍 ALERTA</strong> — the CUIT appears in international sanctions databases (MEACI service).</li>
+          <li><strong>🤖 Explain with AI</strong> — writes, in plain language, why a profile or alert stood out. Up to 3 requests per visitor per day; it does not change any indicator.</li>
+        </ul>
+
+        <h2>Updates</h2>
+        <p>Data updates automatically Monday to Friday at 09:00 (with a retry at 12:00, Argentina time). There is no new data on days without an Official Gazette edition.</p>
+
+        <h2>Disclaimer</h2>
+        <p>Experimental and academic tool. The data comes from official public sources. Results are algorithmic risk indicators: they do not imply a value judgment, an accusation or a finding of liability against any company, agency or person. Before drawing conclusions, check the original BORA notice (↗ link in each row).</p>
+
+        <h2>Academic reference</h2>
         <p>Monteverde, V. H. (2020). <em>Great corruption – theory of corrupt phenomena</em>. Journal of Financial Crime, Vol. 28 No. 2, pp. 580-595. <a href="https://doi.org/10.1108/JFC-04-2020-0062" target="_blank" style="color:var(--accent2)">https://doi.org/10.1108/JFC-04-2020-0062</a></p>
       </div>
     </div>
@@ -1047,6 +1155,10 @@ function nav(seccion, el) {
   if (seccion === 'proveedores' && !state.provInit) {
     state.provInit = true;
     cargarProveedores();
+  }
+  if (seccion === 'sincuit' && !state.sinCuitInit) {
+    state.sinCuitInit = true;
+    cargarSinCuit();
   }
   if (seccion === 'monitor' && !state.monitorCargado) {
     state.monitorCargado = true;
@@ -1304,6 +1416,7 @@ async function cargarOrganismos() {
   try {
     const data = await api('/api/organismos?top=15');
     const orgs = data.data || [];
+    cargarListaOrganismos();
 
     const ctx = document.getElementById('chart-organismos').getContext('2d');
     new Chart(ctx, {
@@ -1321,7 +1434,13 @@ async function cargarOrganismos() {
       },
       options: {
         indexAxis: 'y',
-        plugins: { legend: { display: false } },
+        onClick: (_evt, elementos) => {
+          if (!elementos.length) return;
+          const o = orgs[elementos[0].index];
+          if (o) { document.getElementById('org-search').value = o.organismo; buscarOrganismo(); }
+        },
+        plugins: { legend: { display: false },
+                   tooltip: { callbacks: { footer: () => 'Clic para ver el perfil' } } },
         scales: {
           x: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono', size: 10 },
                         callback: v => fmtMonto(v) }, grid: { color: 'rgba(26,58,107,.3)' } },
@@ -1333,28 +1452,60 @@ async function cargarOrganismos() {
   } catch(e) { console.error(e); }
 }
 
-async function buscarOrganismo() {
+async function cargarListaOrganismos() {
+  try {
+    const d = await api('/api/organismos/lista');
+    document.getElementById('org-lista').innerHTML = (d.data || [])
+      .map(o => `<option value="${escHtml(o.organismo)}">${o.contratos} avisos</option>`).join('');
+  } catch(_) { /* el autocompletado es opcional */ }
+}
+
+function escHtml(t) {
+  return String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function abrirOrganismo(nombre, agrupar) {
+  document.getElementById('org-search').value = nombre;
+  buscarOrganismo(agrupar);
+}
+
+async function buscarOrganismo(agrupar = false) {
   const nombre = document.getElementById('org-search').value.trim();
   if (!nombre) return;
   const el = document.getElementById('org-perfil');
   el.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando perfil…</div>';
   try {
-    const d = await api('/api/organismos/' + encodeURIComponent(nombre));
+    // Por parámetro y no en la ruta: hay organismos con "/" en el nombre
+    const params = new URLSearchParams({ nombre });
+    if (agrupar) params.append('agrupar', 'true');
+    const d = await api('/api/organismo?' + params);
+    if (d.ambiguo) {
+      el.innerHTML = `
+        <div class="card-title" style="margin-bottom:8px">Hay ${d.coincidencias.length} organismos que coinciden con «${escHtml(d.consulta)}». Elegí uno:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+          ${d.coincidencias.map(c => `<button class="btn ghost" style="font-size:11px;padding:5px 10px"
+              onclick='abrirOrganismo(${JSON.stringify(c.organismo).replace(/'/g, "&#39;")}, false)'>${escHtml(c.organismo)} · ${c.contratos}</button>`).join('')}
+        </div>
+        <button class="btn" onclick='abrirOrganismo(${JSON.stringify(d.consulta).replace(/'/g, "&#39;")}, true)'>Ver todos juntos</button>`;
+      return;
+    }
     state.orgPerfilActual = d;
     const hhi_color = d.hhi >= 2500 ? 'var(--red)' : d.hhi >= 1500 ? 'var(--gold)' : 'var(--green)';
     const mostrarIA = d.hhi >= 1500 || (d.red_flags && Object.keys(d.red_flags).length);
+    const incluidos = d.organismos_incluidos || [];
     el.innerHTML = `
+      <div class="card-title" style="margin-bottom:10px">${escHtml(d.organismo)}${incluidos.length > 1 ? ` <span style="font-size:11px;color:var(--text3)">(${incluidos.length} organismos agrupados)</span>` : ''}</div>
       <div class="kpi-grid" style="margin-bottom:16px">
-        <div class="kpi"><div class="kpi-val">${d.total_contratos?.toLocaleString()}</div><div class="kpi-lbl">Contratos</div></div>
-        <div class="kpi"><div class="kpi-val">${fmtMonto(d.monto_total)}</div><div class="kpi-lbl">Monto total</div></div>
-        <div class="kpi"><div class="kpi-val">${d.proveedores_unicos}</div><div class="kpi-lbl">Proveedores</div></div>
-        <div class="kpi"><div class="kpi-val" style="color:${hhi_color}">${Math.round(d.hhi)}</div><div class="kpi-lbl">HHI · ${d.hhi_interpretacion}</div></div>
+        <div class="kpi"><div class="kpi-val">${d.total_contratos?.toLocaleString()}</div><div class="kpi-lbl">Contratos · ${d.contratos_sin_cuit} sin CUIT</div></div>
+        <div class="kpi"><div class="kpi-val">${fmtMonto(d.monto_total)}</div><div class="kpi-lbl">Monto total · ${d.contratos_con_monto} con monto</div></div>
+        <div class="kpi"><div class="kpi-val">${d.proveedores_unicos}</div><div class="kpi-lbl">Proveedores (con CUIT)</div></div>
+        <div class="kpi"><div class="kpi-val" style="color:${hhi_color}">${Math.round(d.hhi)}</div><div class="kpi-lbl">HHI · ${d.hhi_interpretacion} · por ${d.hhi_base || 'monto'}</div></div>
       </div>
       ${d.red_flags && Object.keys(d.red_flags).length ? `
         <div style="margin-bottom:16px">
           <div class="card-title">🚨 Red Flags</div>
           ${Object.entries(d.red_flags).map(([k,v]) =>
-            `<div class="stat-row"><span class="stat-key">${k}</span><span class="badge badge-red">${v}</span></div>`
+            `<div class="stat-row"><span class="stat-key">${escHtml(k)}</span><span class="badge badge-red">${v}</span></div>`
           ).join('')}
         </div>` : ''}
       ${mostrarIA ? `<button class="btn-ia" id="btn-ia-org" onclick="explicarOrganismoIA()">🤖 Explicar con IA (máx. 3 por día)</button>
@@ -1367,16 +1518,42 @@ async function buscarOrganismo() {
             ${(d.top_proveedores||[]).map(p => `
               <tr>
                 <td style="font-family:var(--mono);font-size:11px">${p.cuit_proveedor||p.cuit||'—'}${MEACI[p.cuit_proveedor||p.cuit] ? ' <span class="chip-meaci" title="Sancionado internacionalmente — MEACI">🌍 ALERTA</span>' : ''}</td>
-                <td>${(p.nombre||'—').substring(0,40)}</td>
+                <td>${escHtml((p.nombre||'—').substring(0,40))}</td>
                 <td style="text-align:center">${p.contratos}</td>
                 <td style="font-family:var(--mono);text-align:right">${fmtMonto(p.monto)}</td>
+              </tr>`).join('') || '<tr><td colspan="4" style="color:var(--text3)">Ningún aviso de este organismo tiene CUIT legible.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-title" style="margin:16px 0 10px">📄 Últimas adjudicaciones</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Proveedor</th><th>CUIT</th><th>Monto</th><th>Riesgo</th><th>Aviso</th></tr></thead>
+          <tbody>
+            ${(d.contratos||[]).slice(0,30).map(c => `
+              <tr>
+                <td style="font-family:var(--mono);font-size:11px">${c.fecha||''}</td>
+                <td>${escHtml((c.proveedor_adjudicado||'—').substring(0,40))}</td>
+                <td style="font-family:var(--mono);font-size:11px">${c.cuit_proveedor||'—'}</td>
+                <td style="font-family:var(--mono);text-align:right">${fmtMonto(parseMontoAR(c.monto_adjudicado_bora))}</td>
+                <td>${badgeRiesgo(c.nivel_riesgo_licit)}</td>
+                <td>${c.link_bora ? `<a href="${c.link_bora}" target="_blank">↗</a>` : '—'}</td>
               </tr>`).join('')}
           </tbody>
         </table>
       </div>`;
   } catch(e) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>Organismo no encontrado. Probá con parte del nombre.<br><span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${e.message||''}</span></div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>${escHtml((e.message||'').replace(/^HTTP \d+: /, '')) || 'Organismo no encontrado.'}<br><span style="font-size:11px;color:var(--text3)">Probá con parte del nombre o una sigla.</span></div>`;
   }
+}
+
+function parseMontoAR(v) {
+  // "$1.234.567,89" → 1234567.89 (para mostrar con fmtMonto)
+  let t = String(v ?? '').replace(/[^\d.,]/g, '').replace(/[.,]$/, '');
+  if (!t) return 0;
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else if ((t.match(/\./g) || []).length > 1 || /\.\d{3}$/.test(t)) t = t.replace(/\./g, '');
+  return parseFloat(t) || 0;
 }
 
 async function explicarOrganismoIA() {
@@ -1653,14 +1830,57 @@ async function explicarAlertaIA(tipo, idx) {
   }
 }
 
+// ── SIN CUIT ─────────────────────────────────────────────────────────────────
+async function cargarSinCuit() {
+  const params = new URLSearchParams({ limit: 200 });
+  const org = document.getElementById('sc-organismo').value.trim();
+  if (org) params.append('organismo', org);
+  const tbody = document.getElementById('sincuit-tbody');
+  tbody.innerHTML = '<tr><td colspan="6"><div class="loading"><div class="spinner"></div></div></td></tr>';
+  try {
+    const d = await api('/api/sin-cuit?' + params);
+    document.getElementById('sincuit-resumen').innerHTML = `
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-val">${d.total.toLocaleString()}</div><div class="kpi-lbl">Avisos sin CUIT${org ? '' : ` · ${d.porcentaje}% del total`}</div></div>
+        <div class="kpi"><div class="kpi-val">${d.con_nombre_proveedor}</div><div class="kpi-lbl">Con nombre de proveedor</div></div>
+      </div>
+      ${org ? '' : `<div class="card" style="margin-bottom:16px"><div class="card-title">🏛️ Organismos con más avisos sin CUIT</div>
+        ${(d.por_organismo||[]).slice(0,10).map(o => `<div class="stat-row"><span class="stat-key">${escHtml(o.organismo)}</span><span class="stat-val">${o.avisos}</span></div>`).join('')}</div>`}`;
+    tbody.innerHTML = (d.data||[]).map(r => `
+      <tr>
+        <td style="font-family:var(--mono);font-size:11px">${r.fecha}</td>
+        <td>${escHtml((r.organismo||'').substring(0,50))}</td>
+        <td style="font-size:11px">${escHtml((r.tipo||'').substring(0,30))}</td>
+        <td>${escHtml(r.proveedor||'—')}</td>
+        <td style="font-family:var(--mono);text-align:right">${fmtMonto(parseMontoAR(r.monto))}</td>
+        <td>${r.link_bora ? `<a href="${r.link_bora}" target="_blank">Ver en BORA ↗</a>` : '—'}</td>
+      </tr>`).join('') || '<tr><td colspan="6"><div class="empty"><div class="empty-icon">✅</div>Sin resultados</div></td></tr>';
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--red);padding:20px;text-align:center">Error al cargar</td></tr>';
+  }
+}
+
+// ── MANUAL: idioma ────────────────────────────────────────────────────────────
+function manualIdioma(lang) {
+  ['es','en'].forEach(l => { document.getElementById('manual-' + l).style.display = l === lang ? '' : 'none'; });
+  document.querySelectorAll('#sec-manual .lang-tabs .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
+}
+
+// ── Enter para buscar ─────────────────────────────────────────────────────────
+[['f-organismo', () => buscarContratos()], ['f-cuit', () => buscarContratos()],
+ ['org-search', () => buscarOrganismo()], ['prov-busqueda', () => cargarProveedores()],
+ ['sc-organismo', () => cargarSinCuit()], ['stats-token', () => cargarStats()]]
+  .forEach(([id, fn]) => document.getElementById(id)?.addEventListener('keydown', e => { if (e.key === 'Enter') fn(); }));
+
 // ── ESTADÍSTICAS ──────────────────────────────────────────────────────────────
 async function cargarStats() {
   const token = document.getElementById('stats-token').value;
   const el = document.getElementById('stats-content');
   el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   try {
-    const r = await fetch('/api/stats', { headers: { 'X-Refresh-Token': token } });
-    if (!r.ok) { el.innerHTML = '<div style="color:var(--red);padding:20px">Token inválido</div>'; return; }
+    const r = await fetch('/api/stats', { headers: { 'X-Stats-Key': token } });
+    if (!r.ok) { el.innerHTML = '<div style="color:var(--red);padding:20px">Clave inválida</div>'; return; }
+    if (r.ok) { try { localStorage.setItem('statsKeyOk', '1'); } catch(_) {} }
     const d = await r.json();
     el.innerHTML = `
       <div class="kpi-grid" style="margin-bottom:20px">
@@ -1697,8 +1917,8 @@ setTimeout(cargarMEACI, 2500);  // MEACI: carga alertas internacionales en backg
 async function cargarMEACI() {
   try {
     // Obtener todos los CUITs conocidos del resumen
-    const res = await api('/api/proveedores?limit=200');
-    const cuits = (res.proveedores || []).map(p => p.cuit).filter(Boolean);
+    const res = await api('/api/proveedores?top=100');
+    const cuits = (res.data || []).map(p => p.cuit).filter(Boolean);
     if (!cuits.length) return;
     const r = await fetch('/api/cruce-cuits-bulk?cuits=' + cuits.slice(0,50).join(','));
     const d = await r.json();
@@ -1706,8 +1926,8 @@ async function cargarMEACI() {
     if (Object.keys(MEACI).length > 0) {
       console.log('🌍 MEACI alertas:', Object.keys(MEACI).length);
       // Re-renderizar tablas para mostrar badges
-      if (typeof renderProveedores === 'function') renderProveedores();
-      if (typeof renderContratos  === 'function') renderContratos();
+      if (state.provInit) cargarProveedores();
+      if (state.contratosInit) _fetchContratos();
     }
   } catch(e) { /* MEACI no disponible, no bloquea */ }
 }

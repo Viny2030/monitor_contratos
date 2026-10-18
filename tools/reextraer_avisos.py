@@ -8,7 +8,8 @@ data/correcciones/avisos_reextraidos.csv. No modifica ningún reporte Excel.
 main.py lee ese CSV al cargar los datos y completa SOLO las celdas vacías
 (ver _aplicar_correcciones), así que nunca pisa un dato que vino del aviso.
 
-Uso:
+Uso (el BORA limita las consultas: si responde 429 la herramienta se detiene sola
+y se puede volver a correr más tarde, retoma donde quedó):
     python tools/reextraer_avisos.py                 # todos los avisos incompletos
     python tools/reextraer_avisos.py --desde 2026-09-01
     python tools/reextraer_avisos.py --limite 20     # prueba rápida
@@ -54,7 +55,8 @@ def main_cli():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--desde")
     p.add_argument("--limite", type=int, default=0)
-    p.add_argument("--pausa", type=float, default=1.0, help="segundos entre avisos (cortesía con el BORA)")
+    p.add_argument("--pausa", type=float, default=3.0, help="segundos entre avisos (el BORA responde 429 si se le pide rápido)")
+    p.add_argument("--max-fallos", type=int, default=5, help="avisos seguidos sin respuesta antes de detenerse")
     a = p.parse_args()
 
     os.makedirs(main.CORRECCIONES_DIR, exist_ok=True)
@@ -68,12 +70,19 @@ def main_cli():
     print(f"📋 {len(df)} avisos incompletos · {len(pendientes)} por revisar")
 
     nuevos, recuperados = [], {c: 0 for c in CAMPOS}
+    fallos_seguidos = 0
     for i, r in enumerate(pendientes, 1):
         m = re.search(r"/detalleAviso/tercera/(\d+)/(\d{8})", r["link_bora"])
         if not m:
             continue
         aviso_id, f = m.group(1), m.group(2)
         texto = diario._texto_aviso_bora(aviso_id, f"{f[:4]}-{f[4:6]}-{f[6:]}")
+        fallos_seguidos = 0 if texto else fallos_seguidos + 1
+        if fallos_seguidos >= a.max_fallos:
+            # El BORA limita la cantidad de consultas (HTTP 429): seguir solo lo empeora.
+            print(f"⏸️  {a.max_fallos} avisos seguidos sin respuesta del BORA (probablemente 429, "
+                  "demasiadas consultas). Se detiene; volvé a correrlo más tarde y retoma desde acá.")
+            break
         fila = {"link_bora": r["link_bora"],
                 "cuit_proveedor": diario._normalizar_cuit(texto) if texto else "",
                 "proveedor_adjudicado": diario._extraer_proveedor(texto) if texto else "",

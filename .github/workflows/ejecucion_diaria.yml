@@ -68,7 +68,7 @@ jobs:
       # no está disponible a la mañana) y guarda lo recuperado en data/correcciones/.
       # No modifica los reportes: el sitio solo completa celdas vacías.
       - name: Reintentar avisos incompletos
-        run: python tools/reextraer_avisos.py --desde $(date -d '7 days ago' +'%Y-%m-%d') --pausa 0.5
+        run: python tools/reextraer_avisos.py --desde $(date -d '7 days ago' +'%Y-%m-%d') --pausa 3
         timeout-minutes: 30
         continue-on-error: true
 

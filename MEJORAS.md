@@ -51,3 +51,21 @@ Tarda unos 10 segundos por aviso (el BORA responde lento y hay una pausa de cort
 - `registrar_visita` abre una conexión nueva a PostgreSQL en cada consulta a la API: conviene un pool o registrar en segundo plano.
 - `POST /api/refresh` corre el scraping completo dentro de la request (Railway corta a los ~90 s): pasarlo a segundo plano como en gob_bo_comprar_tgn.
 - `/api/stats` devuelve nombre y email de quienes donaron: si la clave se comparte, conviene ocultarlos.
+
+## Tercera tanda: uso, alertas y mantenimiento
+
+| Qué | Dónde |
+|---|---|
+| **Exportar a CSV** (Excel en español): Contratos con los filtros aplicados, Sin CUIT, perfil de organismo y perfil de proveedor | `GET /api/contratos.csv`, `/api/sin-cuit.csv`, `/api/organismo.csv`, `/api/proveedor.csv`; botones ⬇️ CSV |
+| **Enlaces directos**: `/?organismo=ANSES`, `/?proveedor=30-71620292-1`, `/?seccion=sincuit`; botón 🔗 Copiar enlace en cada perfil | `templates/index.html` |
+| **Tendencias**: último mes contra el anterior (mismo tramo de días si el mes está en curso): organismos con más adjudicaciones y con más contrataciones directas | `GET /api/tendencias`; tarjeta en Resumen |
+| **Cobertura de montos** a la vista: "solo N de M avisos traen monto"; ranking de organismos por monto o por cantidad | `/api/resumen` (`con_monto`), `/api/organismos?orden=cantidad` |
+| **Sección Estado**: último reporte, filas por fuente, días hábiles sin reporte, % de avisos con CUIT/monto, avisos completados, refresco e IA | `GET /api/estado` |
+| **`/api/refresh` en segundo plano** (antes Railway lo cortaba a los ~90 s): responde 202 y se sigue en `/api/refresh/estado` | `main.py` |
+| **Límite de IA en PostgreSQL** (tabla `ia_usos`): ya no se reinicia con cada deploy; sin base sigue en memoria como antes. La IP se toma del proxy de Railway, así que no se puede saltear cambiando un header | `db.py`, `main.py` |
+| **Mail del cron solo con alertas** (riesgo Alto o CUIT en MEACI), en lugar de un "OK" diario; los fallos siguen avisando | `tools/alertas_dia.py`, `.github/workflows/ejecucion_diaria.yml` |
+| `test_extras.py` (10 tests) en CI | `.github/workflows/test.yml` |
+
+### Re-lectura del histórico
+
+El BORA bloquea las consultas seguidas desde una misma conexión (HTTP 429): la herramienta se detiene sola. El cron diario, que consulta desde GitHub, va completando los avisos de la última semana. Para el histórico, correr `python tools/reextraer_avisos.py --pausa 10` de noche; retoma donde quedó.

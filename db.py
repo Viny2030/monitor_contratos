@@ -123,3 +123,65 @@ def get_stats() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── Límite diario de consultas a la IA ───────────────────────────────────────
+# Antes el contador vivía en la memoria del proceso: se reiniciaba con cada
+# deploy o reinicio de Railway. En la base persiste y lo comparten todas las
+# réplicas. Si no hay base, main.py usa el contador en memoria como antes.
+_SQL_IA = """
+CREATE TABLE IF NOT EXISTS ia_usos (
+    dia    DATE        NOT NULL,
+    clave  VARCHAR(32) NOT NULL,
+    usos   INTEGER     NOT NULL DEFAULT 0,
+    PRIMARY KEY (dia, clave)
+);
+"""
+
+
+def ia_reservar(dia, clave: str, limite_visitante: int, limite_global: int) -> int | None:
+    """
+    Reserva una consulta. Devuelve los usos previos del visitante si se reservó,
+    -1 si se alcanzó un límite, o None si la base no está disponible.
+    """
+    if not _DATABASE_URL:
+        return None
+    try:
+        conn = _get_conn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(_SQL_IA)
+                cur.execute("SELECT pg_advisory_xact_lock(734200)")  # una reserva por vez
+                cur.execute("SELECT COALESCE(SUM(usos), 0) AS t FROM ia_usos WHERE dia = %s", (dia,))
+                total = cur.fetchone()["t"]
+                cur.execute("SELECT usos FROM ia_usos WHERE dia = %s AND clave = %s", (dia, clave))
+                fila = cur.fetchone()
+                usados = fila["usos"] if fila else 0
+                if usados >= limite_visitante or total >= limite_global:
+                    return -1
+                cur.execute(
+                    "INSERT INTO ia_usos (dia, clave, usos) VALUES (%s, %s, 1) "
+                    "ON CONFLICT (dia, clave) DO UPDATE SET usos = ia_usos.usos + 1",
+                    (dia, clave),
+                )
+                return usados
+        finally:
+            conn.close()
+    except Exception as e:
+        log.warning(f"ia_reservar: base no disponible ({e})")
+        return None
+
+
+def ia_devolver(dia, clave: str) -> None:
+    """Devuelve una consulta reservada que no llegó a responder (no cuenta)."""
+    if not _DATABASE_URL:
+        return
+    try:
+        conn = _get_conn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("UPDATE ia_usos SET usos = GREATEST(usos - 1, 0) WHERE dia = %s AND clave = %s", (dia, clave))
+        finally:
+            conn.close()
+    except Exception as e:
+        log.warning(f"ia_devolver: {e}")

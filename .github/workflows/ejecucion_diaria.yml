@@ -72,6 +72,14 @@ jobs:
         timeout-minutes: 30
         continue-on-error: true
 
+      # ── 6c. Armar alertas del día (riesgo Alto y MEACI) ───────
+      # Solo si el reporte de hoy es nuevo, para no repetir el aviso en la corrida de las 12:00.
+      - name: Armar alertas del día
+        id: alertas
+        if: steps.previo.outputs.existe != 'true'
+        run: python tools/alertas_dia.py --salida alertas.txt
+        continue-on-error: true
+
       # ── 7. Guardar y sincronizar ─────────────────────────────
       - name: Commit y push de reportes generados
         run: |
@@ -103,16 +111,18 @@ jobs:
             https://monitorcontratos-production.up.railway.app/api/refresh)
           cat /tmp/rail_resp.json
           echo ""
-          if [ "$STATUS" = "200" ]; then
-            echo "✅ Railway recargó los datos correctamente"
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "202" ]; then
+            echo "✅ Railway recibió el pedido de recarga (corre en segundo plano)"
           else
             echo "⚠️ Railway respondió HTTP $STATUS — los datos se cargarán en el próximo request"
           fi
         continue-on-error: true
 
-      # ── 8. Notificación de éxito ─────────────────────────────
-      - name: Notificar éxito
-        if: success()
+      # ── 8. Mail solo si hay alertas ──────────────────────────
+      # Antes llegaba un "OK" todos los días; ahora el mail llega solo cuando hay
+      # adjudicaciones de riesgo Alto o CUITs con sanciones internacionales.
+      - name: Notificar alertas
+        if: success() && steps.alertas.outputs.hay_alertas == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -122,10 +132,8 @@ jobs:
           password: ${{ secrets.MAIL_PASS }}
           to: ${{ secrets.MAIL_TO }}
           from: Monitor BORA <${{ secrets.MAIL_USER }}>
-          subject: "✅ Monitor diario OK — ${{ steps.fecha.outputs.fecha }}"
-          body: |
-            El ciclo diario BORA + Comprar + TGN se ejecutó correctamente.
-            🔗 Ver run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          subject: "🚨 Monitor de Contratos — alertas del ${{ steps.fecha.outputs.fecha }}"
+          body: file://alertas.txt
 
       # ── 9. Notificación de fallo ─────────────────────────────
       - name: Notificar fallo

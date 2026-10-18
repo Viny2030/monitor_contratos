@@ -648,6 +648,9 @@
     <a class="nav-item" data-section="estadisticas" onclick="nav('estadisticas',this)">
       <span class="nav-icon">📈</span> Estadísticas
     </a>
+    <a class="nav-item" data-section="estado" onclick="nav('estado',this)">
+      <span class="nav-icon">🩺</span> Estado
+    </a>
     <a class="nav-item" data-section="manual" onclick="nav('manual',this)">
       <span class="nav-icon">📖</span> Manual de Uso
     </a>
@@ -695,6 +698,10 @@
           <canvas id="chart-evol"></canvas>
         </div>
       </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">📈 <span>Tendencias</span> por organismo <span id="tend-periodo" style="font-size:11px;color:var(--text3)"></span></div>
+        <div id="tendencias"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
     </div>
 
     <!-- ── CONTRATOS ── -->
@@ -723,6 +730,7 @@
         <input id="f-hasta" type="date" title="Hasta">
         <button class="btn" onclick="buscarContratos()">Buscar</button>
         <button class="btn ghost" onclick="limpiarFiltros()">Limpiar</button>
+        <button class="btn ghost" onclick="exportarContratos()" title="Descarga todos los contratos con estos filtros">⬇️ CSV</button>
       </div>
       <div id="contratos-info" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px;"></div>
       <div class="table-wrap">
@@ -760,7 +768,14 @@
       </div>
       <div class="chart-row">
         <div class="card" style="grid-column:1/-1">
-          <div class="card-title">🏆 Top 15 organismos por monto adjudicado</div>
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <span>🏆 Top 15 organismos <span id="org-orden-txt">por monto adjudicado</span></span>
+            <select id="org-orden" onchange="cargarOrganismos()" style="font-size:11px">
+              <option value="monto">Por monto</option>
+              <option value="cantidad">Por cantidad de adjudicaciones</option>
+            </select>
+          </div>
+          <div id="org-cobertura" style="font-size:11px;color:var(--text3);margin-bottom:8px"></div>
           <canvas id="chart-organismos" style="max-height:320px"></canvas>
         </div>
       </div>
@@ -824,6 +839,7 @@
       <div class="filters">
         <input id="sc-organismo" type="text" placeholder="Filtrar por organismo o sigla…">
         <button class="btn" onclick="cargarSinCuit()">Buscar</button>
+        <button class="btn ghost" onclick="exportarSinCuit()">⬇️ CSV</button>
       </div>
       <div id="sincuit-resumen"></div>
       <div class="table-wrap">
@@ -873,6 +889,15 @@
         <button class="btn" onclick="cargarStats()">Ver estadísticas</button>
       </div>
       <div id="stats-content"></div>
+    </div>
+
+    <!-- ── ESTADO ── -->
+    <div id="sec-estado" class="section">
+      <div class="section-header">
+        <div class="section-title">🩺 <span>Estado</span> del sistema</div>
+        <div class="section-sub">ÚLTIMO REPORTE · FUENTES · DÍAS FALTANTES · COBERTURA DE DATOS</div>
+      </div>
+      <div id="estado-content"><div class="loading"><div class="spinner"></div></div></div>
     </div>
 
     <!-- ── MANUAL ── -->
@@ -1156,6 +1181,7 @@ function nav(seccion, el) {
     state.provInit = true;
     cargarProveedores();
   }
+  if (seccion === 'estado') cargarEstado();
   if (seccion === 'sincuit' && !state.sinCuitInit) {
     state.sinCuitInit = true;
     cargarSinCuit();
@@ -1223,7 +1249,7 @@ async function cargarInicio() {
       { val: (res.cobraron_tgn||0).toLocaleString(),  lbl: 'Organismo con pagos TGN', cls: 'green' },
       { val: (res.con_cuit||0).toLocaleString(),      lbl: 'Con CUIT extraído',   cls: '' },
       { val: (res.organismos_unicos||0).toLocaleString(), lbl: 'Organismos únicos', cls: '' },
-      { val: fmtMonto(res.monto_total_ars||0),        lbl: 'Monto total ARS',     cls: 'blue' },
+      { val: fmtMonto(res.monto_total_ars||0),        lbl: `Monto total ARS · solo ${res.con_monto ?? '?'} de ${res.total||0} avisos traen monto`, cls: 'blue' },
     ];
     document.getElementById('kpi-grid').innerHTML = kpis.map(k =>
       `<div class="kpi ${k.cls}">
@@ -1414,18 +1440,27 @@ async function _fetchContratos() {
 // ── ORGANISMOS ───────────────────────────────────────────────────────────────
 async function cargarOrganismos() {
   try {
-    const data = await api('/api/organismos?top=15');
+    const orden = document.getElementById('org-orden')?.value || 'monto';
+    const data = await api('/api/organismos?top=15&orden=' + orden);
     const orgs = data.data || [];
-    cargarListaOrganismos();
+    if (!state.listaOrgCargada) { state.listaOrgCargada = true; cargarListaOrganismos(); }
+    document.getElementById('org-orden-txt').textContent = orden === 'cantidad' ? 'por cantidad de adjudicaciones' : 'por monto adjudicado';
+    try {
+      const r = await api('/api/resumen');
+      document.getElementById('org-cobertura').textContent =
+        `Solo ${r.con_monto} de ${r.total} avisos del BORA traen monto: el ranking por monto deja afuera al resto.`;
+    } catch(_) {}
 
     const ctx = document.getElementById('chart-organismos').getContext('2d');
-    new Chart(ctx, {
+    if (state.chartOrg) state.chartOrg.destroy();
+    const porCantidad = orden === 'cantidad';
+    state.chartOrg = new Chart(ctx, {
       type: 'bar',
       data: {
         labels: orgs.map(o => o.organismo?.substring(0,40)),
         datasets: [{
-          label: 'Monto adjudicado (ARS)',
-          data:  orgs.map(o => o.monto_total || 0),
+          label: porCantidad ? 'Adjudicaciones' : 'Monto adjudicado (ARS)',
+          data:  orgs.map(o => porCantidad ? (o.adjudicaciones || 0) : (o.monto_total || 0)),
           backgroundColor: orgs.map((_, i) =>
             `hsla(${210 + i*4}, 80%, ${55 + i*1.5}%, 0.85)`
           ),
@@ -1443,7 +1478,7 @@ async function cargarOrganismos() {
                    tooltip: { callbacks: { footer: () => 'Clic para ver el perfil' } } },
         scales: {
           x: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono', size: 10 },
-                        callback: v => fmtMonto(v) }, grid: { color: 'rgba(26,58,107,.3)' } },
+                        callback: v => porCantidad ? v : fmtMonto(v) }, grid: { color: 'rgba(26,58,107,.3)' } },
           y: { ticks: { color: '#8ab4e8', font: { family: 'IBM Plex Mono', size: 10 } },
                grid: { display: false } },
         }
@@ -1490,11 +1525,18 @@ async function buscarOrganismo(agrupar = false) {
       return;
     }
     state.orgPerfilActual = d;
+    actualizarEnlace({ organismo: nombre, agrupar: agrupar ? '1' : null, proveedor: null });
     const hhi_color = d.hhi >= 2500 ? 'var(--red)' : d.hhi >= 1500 ? 'var(--gold)' : 'var(--green)';
     const mostrarIA = d.hhi >= 1500 || (d.red_flags && Object.keys(d.red_flags).length);
     const incluidos = d.organismos_incluidos || [];
     el.innerHTML = `
-      <div class="card-title" style="margin-bottom:10px">${escHtml(d.organismo)}${incluidos.length > 1 ? ` <span style="font-size:11px;color:var(--text3)">(${incluidos.length} organismos agrupados)</span>` : ''}</div>
+      <div class="card-title" style="margin-bottom:10px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <span>${escHtml(d.organismo)}${incluidos.length > 1 ? ` <span style="font-size:11px;color:var(--text3)">(${incluidos.length} organismos agrupados)</span>` : ''}</span>
+        <span>
+          <button class="btn ghost" style="font-size:10px;padding:4px 10px" onclick="exportarOrganismo(${agrupar ? 'true' : 'false'})">⬇️ CSV</button>
+          <button class="btn ghost" style="font-size:10px;padding:4px 10px" onclick="copiarEnlace(this)">🔗 Copiar enlace</button>
+        </span>
+      </div>
       <div class="kpi-grid" style="margin-bottom:16px">
         <div class="kpi"><div class="kpi-val">${d.total_contratos?.toLocaleString()}</div><div class="kpi-lbl">Contratos · ${d.contratos_sin_cuit} sin CUIT</div></div>
         <div class="kpi"><div class="kpi-val">${fmtMonto(d.monto_total)}</div><div class="kpi-lbl">Monto total · ${d.contratos_con_monto} con monto</div></div>
@@ -1633,10 +1675,17 @@ async function verPerfilProv(cuit) {
   try {
     const d = await api('/api/proveedores/' + encodeURIComponent(cuit));
     state.provPerfilActual = d;
+    actualizarEnlace({ proveedor: cuit, organismo: null, agrupar: null });
     const mostrarIA = d.red_flags && Object.keys(d.red_flags).length;
     el.innerHTML = `
       <div class="card">
-        <div class="card-title">🏢 <span>${d.nombre}</span> · <span style="font-family:var(--mono);font-size:12px">${d.cuit}</span></div>
+        <div class="card-title" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <span>🏢 <span>${escHtml(d.nombre)}</span> · <span style="font-family:var(--mono);font-size:12px">${d.cuit}</span></span>
+          <span>
+            <button class="btn ghost" style="font-size:10px;padding:4px 10px" onclick="location.href='/api/proveedor.csv?cuit=' + encodeURIComponent('${d.cuit}')">⬇️ CSV</button>
+            <button class="btn ghost" style="font-size:10px;padding:4px 10px" onclick="copiarEnlace(this)">🔗 Copiar enlace</button>
+          </span>
+        </div>
         <div class="kpi-grid" style="margin-bottom:16px">
           <div class="kpi"><div class="kpi-val">${d.total_contratos?.toLocaleString()}</div><div class="kpi-lbl">Contratos</div></div>
           <div class="kpi"><div class="kpi-val">${fmtMonto(d.monto_adjudicado)}</div><div class="kpi-lbl">Adjudicado</div></div>
@@ -1860,6 +1909,115 @@ async function cargarSinCuit() {
   }
 }
 
+// ── EXPORTAR CSV ──────────────────────────────────────────────────────────────
+function exportarContratos() {
+  const params = new URLSearchParams();
+  [['f-organismo','organismo'],['f-cuit','cuit'],['f-riesgo','nivel_riesgo'],['f-alerta','alerta'],
+   ['f-desde','desde'],['f-hasta','hasta']].forEach(([id, k]) => {
+    const v = document.getElementById(id)?.value; if (v) params.append(k, v);
+  });
+  location.href = '/api/contratos.csv?' + params;
+}
+function exportarSinCuit() {
+  const org = document.getElementById('sc-organismo').value.trim();
+  location.href = '/api/sin-cuit.csv' + (org ? '?organismo=' + encodeURIComponent(org) : '');
+}
+function exportarOrganismo(agrupar) {
+  const nombre = document.getElementById('org-search').value.trim();
+  const p = new URLSearchParams({ nombre }); if (agrupar) p.append('agrupar', 'true');
+  location.href = '/api/organismo.csv?' + p;
+}
+
+// ── ENLACES DIRECTOS (?organismo=ANSES · ?proveedor=30-… · ?seccion=sincuit) ──
+function actualizarEnlace(cambios) {
+  const u = new URL(location.href);
+  Object.entries(cambios).forEach(([k, v]) => v ? u.searchParams.set(k, v) : u.searchParams.delete(k));
+  history.replaceState(null, '', u);
+}
+async function copiarEnlace(btn) {
+  try { await navigator.clipboard.writeText(location.href); btn.textContent = '✅ Copiado'; }
+  catch(_) { prompt('Copiá este enlace:', location.href); }
+}
+function abrirDesdeEnlace() {
+  const p = new URLSearchParams(location.search);
+  const ir = s => nav(s, document.querySelector(`.nav-item[data-section="${s}"]`));
+  if (p.get('organismo')) {
+    ir('organismos');
+    document.getElementById('org-search').value = p.get('organismo');
+    buscarOrganismo(p.get('agrupar') === '1');
+  } else if (p.get('proveedor')) {
+    ir('proveedores');
+    verPerfilProv(p.get('proveedor'));
+  } else if (p.get('seccion') && document.getElementById('sec-' + p.get('seccion'))) {
+    ir(p.get('seccion'));
+  }
+}
+
+// ── TENDENCIAS ────────────────────────────────────────────────────────────────
+async function cargarTendencias() {
+  const el = document.getElementById('tendencias');
+  try {
+    const d = await api('/api/tendencias?top=8');
+    document.getElementById('tend-periodo').textContent =
+      `· ${d.mes_actual}${d.parcial ? ` (hasta el día ${d.hasta_dia})` : ''} vs. ${d.mes_anterior}${d.parcial ? ' (mismo tramo)' : ''}`;
+    const fila = (o, campo) => `
+      <div class="stat-row" style="cursor:pointer" onclick='abrirOrganismoDesdeResumen(${JSON.stringify(o.organismo).replace(/'/g, "&#39;")})'>
+        <span class="stat-key">${escHtml(o.organismo.substring(0,55))}</span>
+        <span class="stat-val">${campo === 'variacion'
+          ? `${o.contratos_anterior} → ${o.contratos_actual}`
+          : `${o.directas_anterior} → ${o.directas_actual} directas`}</span>
+      </div>`;
+    el.innerHTML = `
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Adjudicaciones: ${d.totales.anterior} → ${d.totales.actual}. Clic en un organismo para ver su perfil.</div>
+      <div class="chart-row" style="margin:0">
+        <div><div class="card-title" style="font-size:12px">⬆️ Más adjudicaciones que el mes anterior</div>
+          ${(d.suben||[]).map(o => fila(o, 'variacion')).join('') || '<div style="color:var(--text3);font-size:12px">Sin aumentos</div>'}</div>
+        <div><div class="card-title" style="font-size:12px">⚠️ Más contrataciones directas</div>
+          ${(d.mas_directas||[]).map(o => fila(o, 'directas')).join('') || '<div style="color:var(--text3);font-size:12px">Sin aumentos</div>'}</div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px">Sin datos suficientes para comparar meses.</div>';
+  }
+}
+function abrirOrganismoDesdeResumen(nombre) {
+  nav('organismos', document.querySelector('.nav-item[data-section="organismos"]'));
+  document.getElementById('org-search').value = nombre;
+  buscarOrganismo();
+}
+
+// ── ESTADO DEL SISTEMA ────────────────────────────────────────────────────────
+async function cargarEstado() {
+  const el = document.getElementById('estado-content');
+  try {
+    const e = await api('/api/estado');
+    const u = e.ultimo_reporte || {};
+    el.innerHTML = `
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-val" style="font-size:16px">${(u.archivo||'—').replace('reporte_','').replace('.xlsx','')}</div><div class="kpi-lbl">Último reporte</div></div>
+        <div class="kpi"><div class="kpi-val">${e.reportes}</div><div class="kpi-lbl">Reportes guardados</div></div>
+        <div class="kpi"><div class="kpi-val">${e.cobertura.cuit_pct}%</div><div class="kpi-lbl">Avisos con CUIT</div></div>
+        <div class="kpi"><div class="kpi-val">${e.cobertura.monto_pct}%</div><div class="kpi-lbl">Avisos con monto</div></div>
+        <div class="kpi"><div class="kpi-val">${e.avisos_completados_por_relectura}</div><div class="kpi-lbl">Avisos completados al releer el BORA</div></div>
+        <div class="kpi"><div class="kpi-val">${e.ia.disponible ? 'Activa' : 'No'}</div><div class="kpi-lbl">IA · ${e.ia.limite_por_visitante}/visitante · ${e.ia.limite_global_dia}/día</div></div>
+      </div>
+      <div class="chart-row">
+        <div class="card">
+          <div class="card-title">📄 Filas por hoja del último reporte</div>
+          ${Object.entries(u.filas_por_hoja||{}).map(([h,n]) => `<div class="stat-row"><span class="stat-key">${escHtml(h)}</span><span class="stat-val">${n}</span></div>`).join('')}
+        </div>
+        <div class="card">
+          <div class="card-title">📅 Días hábiles sin reporte (últimos 30)</div>
+          ${(e.dias_habiles_sin_reporte_30d||[]).map(d => `<div class="stat-row"><span class="stat-key">${d}</span></div>`).join('') || '<div style="color:var(--green);font-size:12px">Ninguno ✅</div>'}
+          <div style="font-size:11px;color:var(--text3);margin-top:10px">
+            Refresco manual: ${e.refresco.corriendo ? 'en curso' : (e.refresco.terminado_en ? 'último ' + e.refresco.terminado_en.substring(0,16).replace('T',' ') + (e.refresco.error ? ' (con error)' : '') : 'sin ejecuciones desde el último reinicio')}
+          </div>
+        </div>
+      </div>`;
+  } catch(err) {
+    el.innerHTML = '<div style="color:var(--red);padding:20px">No se pudo cargar el estado</div>';
+  }
+}
+
 // ── MANUAL: idioma ────────────────────────────────────────────────────────────
 function manualIdioma(lang) {
   ['es','en'].forEach(l => { document.getElementById('manual-' + l).style.display = l === lang ? '' : 'none'; });
@@ -1911,6 +2069,8 @@ async function cargarStats() {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 cargarInicio();
+cargarTendencias();
+abrirDesdeEnlace();
 setTimeout(cargarMEACI, 2500);  // MEACI: carga alertas internacionales en background
 
 // ── Cargar alertas MEACI en background ───────────────────────────────────────

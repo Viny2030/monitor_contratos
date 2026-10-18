@@ -435,7 +435,9 @@ def resumen():
 
     con_cuit  = int(df[col_cuit].astype(str).str.strip().astype(bool).sum()) if col_cuit else 0
     organismos_u = int(df[col_org].nunique()) if col_org else 0
-    monto_total  = df[col_monto].apply(_parsear_monto).sum() if col_monto else 0
+    montos       = df[col_monto].apply(_parsear_monto) if col_monto else pd.Series(dtype=float)
+    monto_total  = montos.sum() if col_monto else 0
+    con_monto    = int((montos > 0).sum()) if col_monto else 0
 
     escenarios = {}
     if col_escen:
@@ -449,7 +451,9 @@ def resumen():
         "cobraron_tgn":       tgn,
         "con_cuit":           con_cuit,
         "organismos_unicos":  organismos_u,
-        "monto_total_ars":    round(monto_total, 2),
+        "monto_total_ars":    round(float(monto_total), 2),
+        # Cuántos avisos traen monto: el total en pesos suma solo esos
+        "con_monto":          con_monto,
         "escenarios_monteverde": escenarios,
         "timestamp":          datetime.now().isoformat(),
     }
@@ -459,22 +463,9 @@ def resumen():
 # API — CONTRATOS
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.get("/api/contratos")
-def contratos(
-    alerta:       str | None = Query(None),
-    nivel_riesgo: str | None = Query(None),
-    organismo:    str | None = Query(None),
-    escenario:    str | None = Query(None),
-    cuit:         str | None = Query(None),
-    desde:        str | None = Query(None),
-    hasta:        str | None = Query(None),
-    limit:        int        = Query(200, le=1000),
-    offset:       int        = Query(0),
-):
-    registrar_visita("contratos")
-    df = _cargar_df().copy()
-    if df.empty:
-        return {"total": 0, "data": []}
+def _filtrar_contratos(df: pd.DataFrame, alerta=None, nivel_riesgo=None, organismo=None,
+                       escenario=None, cuit=None, desde=None, hasta=None) -> pd.DataFrame:
+    """Filtros de la pestaña Contratos (los usan /api/contratos y /api/contratos.csv)."""
 
     col_fecha  = _col(df, ["fecha", "fecha_publicacion"])
     col_riesgo = _col(df, ["nivel_riesgo_licit"])
@@ -507,6 +498,27 @@ def contratos(
     if hasta and col_fecha:
         df = df[df[col_fecha] <= pd.to_datetime(hasta, errors="coerce")]
 
+    return df
+
+
+@app.get("/api/contratos")
+def contratos(
+    alerta:       str | None = Query(None),
+    nivel_riesgo: str | None = Query(None),
+    organismo:    str | None = Query(None),
+    escenario:    str | None = Query(None),
+    cuit:         str | None = Query(None),
+    desde:        str | None = Query(None),
+    hasta:        str | None = Query(None),
+    limit:        int        = Query(200, le=1000),
+    offset:       int        = Query(0),
+):
+    registrar_visita("contratos")
+    df = _cargar_df().copy()
+    if df.empty:
+        return {"total": 0, "data": []}
+    df = _filtrar_contratos(df, alerta, nivel_riesgo, organismo, escenario, cuit, desde, hasta)
+
     total = len(df)
     # Serializar fechas
     for c in df.select_dtypes(include=["datetime64"]).columns:
@@ -525,7 +537,7 @@ def contratos(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/api/organismos")
-def organismos(top: int = Query(20, le=100)):
+def organismos(top: int = Query(20, le=100), orden: str = Query("monto", pattern="^(monto|cantidad)$")):
     registrar_visita("organismos")
     df = _cargar_df()
     if df.empty:
@@ -549,7 +561,8 @@ def organismos(top: int = Query(20, le=100)):
         cobraron_tgn=(col_cobro, lambda x: (x == "✅ SÍ").sum()) if col_cobro else ("_monto", "count"),
     ).reset_index()
     # Solo ~1 de cada 9 avisos trae monto: a igual monto se ordena por cantidad
-    grp = grp.sort_values(["monto_total", "adjudicaciones"], ascending=False).head(top)
+    claves = ["adjudicaciones", "monto_total"] if orden == "cantidad" else ["monto_total", "adjudicaciones"]
+    grp = grp.sort_values(claves, ascending=False).head(top)
 
     grp.columns = ["organismo", "adjudicaciones", "monto_total", "proveedores_distintos", "cobraron_tgn"]
     return {"data": grp.fillna(0).to_dict(orient="records")}
@@ -1121,22 +1134,47 @@ def stats(x_refresh_token: str = Header(None), x_stats_key: str = Header(None)):
     return get_stats()
 
 
+# El scraping completo tarda minutos y el proxy de Railway corta las requests a los
+# ~90 s: antes /api/refresh quedaba a medias y devolvía un 502. Ahora corre en un
+# hilo de fondo; POST responde enseguida (202) y GET /api/refresh/estado informa.
+import threading as _thr_refresh
+_refresh_job = {"corriendo": False, "iniciado_en": None, "terminado_en": None, "registros": None, "error": None}
+_refresh_lock = _thr_refresh.Lock()
+
+
+def _correr_refresh():
+    try:
+        from diario import main as run_diario
+        df = run_diario()
+        with _refresh_lock:
+            _refresh_job.update({"registros": len(df) if df is not None else 0, "error": None})
+    except Exception as e:
+        with _refresh_lock:
+            _refresh_job.update({"error": f"{type(e).__name__}: {e}"})
+    finally:
+        _invalidar_cache()
+        with _refresh_lock:
+            _refresh_job.update({"corriendo": False, "terminado_en": datetime.now().isoformat()})
+
+
 @app.post("/api/refresh")
 def refresh(x_refresh_token: str = Header(None)):
     if x_refresh_token != REFRESH_TOKEN:
         raise HTTPException(status_code=401, detail="Token inválido")
     _invalidar_cache()
-    try:
-        from diario import main as run_diario
-        df = run_diario()
-        _invalidar_cache()
-        return {
-            "status":    "ok",
-            "registros": len(df) if df is not None else 0,
-            "timestamp": datetime.now().isoformat(),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with _refresh_lock:
+        if _refresh_job["corriendo"]:
+            return JSONResponse(status_code=409, content={"status": "en_curso", "iniciado_en": _refresh_job["iniciado_en"]})
+        _refresh_job.update({"corriendo": True, "iniciado_en": datetime.now().isoformat(),
+                             "terminado_en": None, "registros": None, "error": None})
+    _thr_refresh.Thread(target=_correr_refresh, daemon=True).start()
+    return JSONResponse(status_code=202, content={"status": "iniciado", "estado": "/api/refresh/estado"})
+
+
+@app.get("/api/refresh/estado")
+def refresh_estado():
+    with _refresh_lock:
+        return dict(_refresh_job)
 
 def _token_valido(t):
     return t in (REFRESH_TOKEN, ADMIN_KEY)
@@ -1223,8 +1261,11 @@ _ia_lock = _threading.Lock()
 
 
 def _ia_clave(request: Request) -> str:
+    # Se toma la ÚLTIMA IP de X-Forwarded-For: la agrega el proxy de Railway y es la
+    # del visitante. La primera la puede escribir el propio visitante, así que
+    # cambiándola en cada consulta se salteaba el límite.
     fwd = request.headers.get("x-forwarded-for", "")
-    ip = (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "")) or "?"
+    ip = (fwd.split(",")[-1].strip() if fwd else (request.client.host if request.client else "")) or "?"
     return _hashlib.sha256(ip.encode()).hexdigest()[:16]
 
 
@@ -1234,6 +1275,21 @@ def _ia_con_limite(request: Request, fn):
         return fn()
     hoy = datetime.now(_tz.utc).date()
     clave = _ia_clave(request)
+    # Primero en PostgreSQL (persiste entre reinicios); si no hay base, en memoria.
+    from db import ia_reservar, ia_devolver
+    usados_db = ia_reservar(hoy, clave, IA_LIMITE_POR_IP, IA_LIMITE_GLOBAL)
+    if usados_db is not None:
+        if usados_db < 0:
+            return JSONResponse(status_code=429, content={
+                "disponible": False,
+                "motivo": f"Se alcanzó el límite de consultas con IA de hoy ({IA_LIMITE_POR_IP} por visitante). Probá mañana.",
+            })
+        resultado = fn()
+        if not resultado.get("disponible"):
+            ia_devolver(hoy, clave)
+        else:
+            resultado["usos_restantes_hoy"] = IA_LIMITE_POR_IP - usados_db - 1
+        return resultado
     with _ia_lock:
         if _ia_usos["dia"] != hoy:
             _ia_usos.update({"dia": hoy, "por_ip": {}, "total": 0})
@@ -1279,3 +1335,192 @@ def ia_explicar_alerta(alerta: AlertaMonitor, request: Request):
     if alerta.tipo == "fantasmas":
         return {"disponible": False, "motivo": "La alerta de 'fantasmas' está desactivada (TGN no informa CUIT)."}
     return _ia_con_limite(request, lambda: explicar_alerta_monitor(alerta.tipo, alerta.fila))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API — EXPORTAR CSV
+# ─────────────────────────────────────────────────────────────────────────────
+# Separador ";" y BOM UTF-8: Excel en español los abre con acentos y columnas bien.
+
+from fastapi.responses import Response as _Response
+
+COLUMNAS_EXPORTAR = [
+    "fecha", "organismo_base", "organismo_contratante", "tipo_proceso_bora",
+    "proveedor_adjudicado", "cuit_proveedor", "monto_adjudicado_bora",
+    "nivel_riesgo_licit", "indicadores_riesgo", "alerta", "tipo_decision", "link_bora",
+]
+
+
+def _csv(df: pd.DataFrame, nombre: str) -> _Response:
+    cols = [c for c in COLUMNAS_EXPORTAR if c in df.columns]
+    out = df[cols].copy()
+    if "fecha" in out.columns:
+        out["fecha"] = pd.to_datetime(out["fecha"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    contenido = out.fillna("").to_csv(index=False, sep=";")
+    # Nombre de archivo solo ASCII: un acento en el header Content-Disposition rompe la descarga
+    nombre = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
+    nombre = re.sub(r"[^A-Za-z0-9.-]+", "_", nombre)[:80] + ".csv"
+    return _Response(content=("﻿" + contenido).encode("utf-8"), media_type="text/csv; charset=utf-8",
+                     headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+@app.get("/api/contratos.csv")
+def contratos_csv(
+    alerta: str | None = Query(None), nivel_riesgo: str | None = Query(None),
+    organismo: str | None = Query(None), escenario: str | None = Query(None),
+    cuit: str | None = Query(None), desde: str | None = Query(None), hasta: str | None = Query(None),
+):
+    """Los contratos con los mismos filtros de la pestaña Contratos, todos (sin paginar)."""
+    registrar_visita("exportar_contratos")
+    df = _cargar_df().copy()
+    if not df.empty:
+        df = _filtrar_contratos(df, alerta, nivel_riesgo, organismo, escenario, cuit, desde, hasta)
+    return _csv(df, f"contratos_{datetime.now():%Y-%m-%d}")
+
+
+@app.get("/api/sin-cuit.csv")
+def sin_cuit_csv(organismo: str | None = Query(None)):
+    registrar_visita("exportar_sin_cuit")
+    df = _cargar_df().copy()
+    if not df.empty:
+        df = df[df["cuit_proveedor"].astype(str).str.strip() == ""]
+        if "cancelada" in df.columns:  # igual que /api/sin-cuit
+            df = df[~df["cancelada"].astype(str).str.lower().isin(["true", "1"])]
+        if organismo:
+            df = df[_contiene(df["organismo_base"], _expandir_sigla(organismo))]
+        df = df.sort_values("fecha", ascending=False, na_position="last")
+    return _csv(df, f"sin_cuit_{datetime.now():%Y-%m-%d}")
+
+
+@app.get("/api/organismo.csv")
+def organismo_csv(nombre: str = Query(..., min_length=1), agrupar: bool = Query(False)):
+    """Todas las adjudicaciones del organismo (el perfil muestra solo las últimas)."""
+    df = _cargar_df()
+    r = _resolver_organismos(df, nombre, agrupar) if not df.empty else {"no_encontrado": True}
+    if not r.get("incluidos"):
+        raise HTTPException(404, "Organismo no encontrado o ambiguo: elegí uno en el perfil")
+    df_org = df[df["organismo_base"].isin(r["incluidos"])].sort_values("fecha", ascending=False, na_position="last")
+    return _csv(df_org, f"organismo_{r['incluidos'][0] if len(r['incluidos']) == 1 else nombre}")
+
+
+@app.get("/api/proveedor.csv")
+def proveedor_csv(cuit: str = Query(..., min_length=1)):
+    df = _cargar_df()
+    digitos = _solo_digitos(cuit)
+    if df.empty or not digitos:
+        raise HTTPException(404, "CUIT no encontrado")
+    df_p = df[df["cuit_proveedor"].map(_solo_digitos) == digitos].sort_values("fecha", ascending=False, na_position="last")
+    if df_p.empty:
+        raise HTTPException(404, "CUIT no encontrado")
+    return _csv(df_p, f"proveedor_{digitos}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API — TENDENCIAS (último mes con datos vs. el anterior)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/tendencias")
+def tendencias(top: int = Query(10, le=50)):
+    """
+    Compara, por organismo, el último mes con datos contra el anterior: cantidad de
+    adjudicaciones, contrataciones directas y proveedores distintos. Si el último
+    mes está en curso, se compara contra el mismo tramo de días del mes anterior,
+    para no comparar un mes parcial con uno completo.
+    """
+    registrar_visita("tendencias")
+    df = _cargar_df()
+    if df.empty or "fecha" not in df.columns or df["fecha"].isna().all():
+        return {"data": []}
+    df = df[df["fecha"].notna()].copy()
+    ultima = df["fecha"].max()
+    mes_act = ultima.to_period("M")
+    mes_ant = mes_act - 1
+    dia_corte = ultima.day
+    act = df[df["fecha"].dt.to_period("M") == mes_act]
+    ant = df[(df["fecha"].dt.to_period("M") == mes_ant) & (df["fecha"].dt.day <= dia_corte)]
+
+    def resumen(d):
+        tipo = d.get("tipo_proceso_bora", pd.Series("", index=d.index)).astype(str).str.lower()
+        d = d.assign(_directa=tipo.str.contains("directa"))
+        g = d.groupby("organismo_base").agg(
+            contratos=("_directa", "size"), directas=("_directa", "sum"),
+            proveedores=("cuit_proveedor", lambda s: s.astype(str).str.strip().replace("", pd.NA).nunique()),
+        )
+        return g
+
+    a, b = resumen(act), resumen(ant)
+    t = a.join(b, how="outer", lsuffix="_actual", rsuffix="_anterior").fillna(0)
+    t["variacion"] = t["contratos_actual"] - t["contratos_anterior"]
+    t["variacion_directas"] = t["directas_actual"] - t["directas_anterior"]
+    t = t.reset_index().rename(columns={"organismo_base": "organismo"})
+    suben = t[t["variacion"] > 0].sort_values(["variacion", "contratos_actual"], ascending=False).head(top)
+    directas = t[t["variacion_directas"] > 0].sort_values("variacion_directas", ascending=False).head(top)
+    return _json_seguro({
+        "mes_actual": str(mes_act), "mes_anterior": str(mes_ant),
+        "hasta_dia": int(dia_corte),
+        "parcial": bool(dia_corte < ultima.days_in_month),
+        "totales": {"actual": len(act), "anterior": len(ant)},
+        "suben": suben.to_dict(orient="records"),
+        "mas_directas": directas.to_dict(orient="records"),
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API — ESTADO DEL SISTEMA
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/estado")
+def estado_sistema():
+    """Último reporte, filas por fuente, días hábiles sin reporte, refresco, base e IA."""
+    from datetime import timedelta, timezone as _tzz
+    archivos = _buscar_xlsx()
+    hoy_ar = (datetime.now(_tzz.utc) - timedelta(hours=3)).date()
+    ultimo = None
+    if archivos:
+        try:
+            xl = pd.ExcelFile(archivos[0])
+            hojas = {h: int(len(xl.parse(h))) for h in xl.sheet_names}
+        except Exception as e:
+            hojas = {"error": str(e)}
+        ultimo = {"archivo": os.path.basename(archivos[0]), "filas_por_hoja": hojas}
+    fechas_con_reporte = {os.path.basename(a)[8:18] for a in archivos}
+    try:
+        import holidays
+        feriados = holidays.Argentina(years=[hoy_ar.year - 1, hoy_ar.year])
+    except Exception:
+        feriados = {}
+    faltan = []
+    for i in range(1, 31):
+        d = hoy_ar - timedelta(days=i)
+        if d.weekday() < 5 and d not in feriados and d.isoformat() not in fechas_con_reporte:
+            faltan.append(d.isoformat())
+    df = _cargar_df()
+    n = len(df)
+
+    def pct(col):
+        return round(float((df[col].astype(str).str.strip() != "").mean() * 100), 1) if n and col in df.columns else 0.0
+
+    correcciones = 0
+    for a in glob.glob(os.path.join(CORRECCIONES_DIR, "*.csv")):
+        try:
+            correcciones += len(pd.read_csv(a))
+        except Exception:
+            pass
+    from agentic_ai import ia_disponible
+    with _refresh_lock:
+        refresco = dict(_refresh_job)
+    return _json_seguro({
+        "hoy_argentina": hoy_ar.isoformat(),
+        "ultimo_reporte": ultimo,
+        "reportes": len(archivos),
+        "dias_habiles_sin_reporte_30d": faltan,
+        "adjudicaciones": n,
+        "cobertura": {"cuit_pct": pct("cuit_proveedor"), "proveedor_pct": pct("proveedor_adjudicado"),
+                      "monto_pct": pct("monto_adjudicado_bora")},
+        "avisos_completados_por_relectura": correcciones,
+        "cache_cargado": _cache["timestamp"],
+        "refresco": refresco,
+        "base_de_datos": bool(os.getenv("DATABASE_URL")),
+        "ia": {"disponible": ia_disponible(), "limite_por_visitante": IA_LIMITE_POR_IP,
+               "limite_global_dia": IA_LIMITE_GLOBAL},
+    })

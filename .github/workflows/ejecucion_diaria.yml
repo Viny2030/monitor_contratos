@@ -39,6 +39,18 @@ jobs:
         id: fecha
         run: echo "fecha=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
+      # ── 4b. ¿La corrida de la mañana ya generó el reporte? ───
+      # Si ya existe, diario.py no hace nada; antes el análisis de concentración
+      # se regeneraba igual y producía un segundo commit "Monitor diario" por día.
+      - name: Verificar reporte del día
+        id: previo
+        run: |
+          if ls data/*/reporte_$(date +'%Y-%m-%d').xlsx >/dev/null 2>&1; then
+            echo "existe=true" >> $GITHUB_OUTPUT
+          else
+            echo "existe=false" >> $GITHUB_OUTPUT
+          fi
+
       # ── 5. Ciclo diario principal ────────────────────────────
       - name: Ejecutar diario.py (BORA + Comprar + TGN)
         run: python diario.py
@@ -47,7 +59,17 @@ jobs:
 
       # ── 6. Análisis de concentración (sistémico) ─────────────
       - name: Ejecutar analisis_concentracion.py
+        if: steps.previo.outputs.existe != 'true'
         run: python analisis_concentracion.py --exportar
+        continue-on-error: true
+
+      # ── 6b. Reintentar avisos incompletos de la última semana ─
+      # Vuelve a leer del BORA los avisos sin CUIT, proveedor o monto (a veces el PDF
+      # no está disponible a la mañana) y guarda lo recuperado en data/correcciones/.
+      # No modifica los reportes: el sitio solo completa celdas vacías.
+      - name: Reintentar avisos incompletos
+        run: python tools/reextraer_avisos.py --desde $(date -d '7 days ago' +'%Y-%m-%d') --pausa 3
+        timeout-minutes: 30
         continue-on-error: true
 
       # ── 7. Guardar y sincronizar ─────────────────────────────

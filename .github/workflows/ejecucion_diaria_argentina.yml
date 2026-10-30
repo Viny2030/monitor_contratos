@@ -1,0 +1,81 @@
+name: Monitor Diario desde Argentina (runner propio)
+
+# Complementa a ejecucion_diaria.yml (que no se modifica). Desde el 22/10/2026
+# el BORA no responde a los servidores de GitHub, así que este workflow corre en
+# un runner self-hosted con conexión de Argentina (etiqueta `argentina`) y usa
+# tools/actualizar_desde_pc.py: genera TODOS los días hábiles sin reporte (no
+# solo el de hoy), regenera la concentración y publica en `main`. Si un día el
+# runner estuvo apagado, la corrida siguiente completa lo que falte.
+#
+# Mientras no haya un runner con la etiqueta `argentina` registrado en ESTE
+# repo, las corridas quedan en cola y GitHub las cancela a las 24 h.
+
+on:
+  schedule:
+    - cron: '30 12 * * 1-5'  # 09:30 Argentina
+    - cron: '30 15 * * 1-5'  # 12:30 Argentina: reintento (si ya está el reporte, no hace nada)
+  workflow_dispatch:
+    inputs:
+      desde:
+        description: 'Primer día a revisar (AAAA-MM-DD)'
+        required: false
+        default: '2026-10-21'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monitor-diario-argentina
+  cancel-in-progress: false
+
+jobs:
+  run-analysis:
+    runs-on: [self-hosted, argentina]
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt holidays
+
+      - name: Generar y publicar los reportes que falten
+        env:
+          TGN_TOKEN: ${{ secrets.TGN_TOKEN }}
+          PYTHONIOENCODING: utf-8
+        run: |
+          git config user.name "Robot Monitor"
+          git config user.email "robot@noreply.github.com"
+          python -W ignore tools/actualizar_desde_pc.py --publicar --desde "${{ github.event.inputs.desde || '2026-10-21' }}"
+
+      - name: Notificar refresh al sitio
+        continue-on-error: true
+        run: curl -s -X POST -H "x-refresh-token: ${{ secrets.REFRESH_TOKEN }}" https://contratos.ecosistematransparencia.com.ar/api/reload
+
+      - name: Notificar fallo
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USER }}
+          password: ${{ secrets.MAIL_PASS }}
+          to: ${{ secrets.MAIL_TO }}
+          from: Monitor BORA <${{ secrets.MAIL_USER }}>
+          subject: "Monitor de Contratos (Argentina) FALLO"
+          body: |
+            La corrida desde el runner de Argentina falló.
+
+            Ver logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

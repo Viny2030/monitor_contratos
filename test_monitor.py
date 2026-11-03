@@ -63,7 +63,8 @@ def test_limite_ia(monkeypatch):
     monkeypatch.setattr(agentic_ai, "explicar_perfil_organismo", lambda p: {"disponible": True, "explicacion": "ok"})
     main._ia_usos.update({"dia": None, "por_ip": {}, "total": 0})
     c = TestClient(main.app)
-    assert [c.post("/api/ia/explicar-organismo", json={}).status_code for _ in range(4)] == [200, 200, 200, 429]
+    n = main.IA_LIMITE_POR_IP
+    assert [c.post("/api/ia/explicar-organismo", json={}).status_code for _ in range(n + 1)] == [200] * n + [429]
 
 
 def test_tablero_recalcula_riesgo_historico(tmp_path, monkeypatch):

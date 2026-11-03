@@ -1263,7 +1263,7 @@ class AlertaMonitor(BaseModel):
 import hashlib as _hashlib
 import threading as _threading
 from datetime import timezone as _tz
-IA_LIMITE_POR_IP = int(os.getenv("IA_LIMITE_POR_IP", "3"))
+IA_LIMITE_POR_IP = int(os.getenv("IA_LIMITE_POR_IP", "10"))
 IA_LIMITE_GLOBAL = int(os.getenv("IA_LIMITE_GLOBAL_DIA", "30"))
 _ia_usos = {"dia": None, "por_ip": {}, "total": 0}
 _ia_lock = _threading.Lock()

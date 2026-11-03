@@ -1014,7 +1014,7 @@
         <h2>Otras señales</h2>
         <ul>
           <li><strong>🌍 ALERTA</strong> — el CUIT figura en bases de sanciones internacionales (servicio MEACI). Si MEACI no responde, el sitio lo informa como error y no como "sin coincidencias".</li>
-          <li><strong>🤖 Explicar con IA</strong> — redacta en lenguaje simple por qué un perfil o una alerta llamó la atención. Hasta 3 consultas por día por visitante; no cambia ningún indicador.</li>
+          <li><strong>🤖 Explicar con IA</strong> — redacta en lenguaje simple por qué un perfil o una alerta llamó la atención. Hasta 10 consultas por día por visitante; no cambia ningún indicador.</li>
         </ul>
 
         <h2>Aviso</h2>
@@ -1855,7 +1855,7 @@ async function cargarMonitor() {
           <tbody>
             ${hhiRows.map((r, idx) => `
               <tr>
-                <td title="${r.organismo}">${(r.organismo||'').substring(0,55)}</td>
+                <td style="white-space:normal;min-width:260px">${escHtml(r.organismo||'—')}</td>
                 <td style="font-family:var(--mono);font-weight:700;color:${r.hhi>=2500?'var(--red)':r.hhi>=1500?'var(--gold)':'var(--green)'}">${Math.round(r.hhi)}</td>
                 <td style="text-align:center">${r.contratos}</td>
                 <td>${r.hhi>=2500?'<span class="badge badge-red">Alta</span>':r.hhi>=1500?'<span class="badge badge-gold">Moderada</span>':'<span class="badge badge-green">Competitivo</span>'}</td>
@@ -1873,7 +1873,8 @@ async function cargarMonitor() {
       data.fantasmas || [],
       ['cuit','nombre','contratos','monto_total'],
       ['CUIT','Nombre','Contratos','Monto Adjudicado'],
-      'ℹ️ ' + (data.fantasmas_nota || 'No disponible.')
+      data.fantasmas_nota || 'No disponible.',
+      'ℹ️'
     );
 
   } catch(e) {
@@ -1885,8 +1886,8 @@ async function cargarMonitor() {
   }
 }
 
-function renderMonitorTable(tipo, rows, cols, headers, emptyMsg) {
-  if (!rows.length) return `<div class="empty"><div class="empty-icon">✅</div>${emptyMsg}</div>`;
+function renderMonitorTable(tipo, rows, cols, headers, emptyMsg, emptyIcon = '✅') {
+  if (!rows.length) return `<div class="empty"><div class="empty-icon">${emptyIcon}</div>${emptyMsg}</div>`;
   return `
     <div class="table-wrap">
       <table>
@@ -1894,7 +1895,8 @@ function renderMonitorTable(tipo, rows, cols, headers, emptyMsg) {
         <tbody>
           ${rows.map((r, idx) => `<tr>${cols.map((c,i) => {
             const v = r[c];
-            if (i === 0) return `<td title="${v}">${String(v||'—').substring(0,55)}</td>`;
+            // Nombre completo: cortado a 55 caracteres, las direcciones regionales de un mismo organismo se veían iguales
+            if (i === 0) return `<td style="white-space:normal;min-width:260px">${escHtml(String(v||'—'))}</td>`;
             if (typeof v === 'number' && (c.includes('monto')||c.includes('total_')))
               return `<td style="font-family:var(--mono);text-align:right">${fmtMonto(v)}</td>`;
             if (typeof v === 'number')

@@ -108,7 +108,7 @@ jobs:
           STATUS=$(curl -s -o /tmp/rail_resp.json -w "%{http_code}" \
             -X POST \
             -H "x-refresh-token: ${{ secrets.REFRESH_TOKEN }}" \
-            https://monitorcontratos-production.up.railway.app/api/refresh)
+            https://contratos.ecosistematransparencia.com.ar/api/refresh)
           cat /tmp/rail_resp.json
           echo ""
           if [ "$STATUS" = "200" ] || [ "$STATUS" = "202" ]; then

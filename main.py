@@ -24,7 +24,7 @@ load_dotenv()
 import glob
 import os
 # Antes apuntaba a mapatransparencia-production y a /api/cruce-cuit, que no existen (404).
-MEACI_URL = os.getenv("MEACI_URL", "https://meaci-production.up.railway.app").rstrip("/")
+MEACI_URL = os.getenv("MEACI_URL", "https://meaci.ecosistematransparencia.com.ar").rstrip("/")
 import re
 import unicodedata
 from collections import defaultdict
@@ -1189,25 +1189,34 @@ async def cruce_cuit(cuit: str):
             r = await client.get(f"{MEACI_URL}/api/empresas/cuit/{cuit}")
             if r.status_code == 200:
                 return {"cuit": cuit, "sancionado": True, "fuente": "MEACI", "empresa": r.json()}
-            if r.status_code == 404:
+            # Un 404 de MEACI con JSON es "CUIT no encontrado". Un 404 sin JSON es que
+            # MEACI no está en esa dirección: hasta el 03/11/2026 la URL vieja de
+            # Railway devolvía eso y se mostraba como "sin coincidencias" para todos.
+            if r.status_code == 404 and "json" in r.headers.get("content-type", ""):
                 return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "detalle": "sin coincidencias"}
-            return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "error": f"MEACI respondió {r.status_code}"}
+            return {"cuit": cuit, "sancionado": False, "fuente": "MEACI",
+                    "error": f"MEACI no disponible (HTTP {r.status_code} en {MEACI_URL})"}
     except Exception as e:
-        return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "error": str(e)}
+        return {"cuit": cuit, "sancionado": False, "fuente": "MEACI", "error": f"MEACI no disponible: {e}"}
 
 @app.get("/api/cruce-cuits-bulk")
 async def cruce_cuits_bulk(cuits: str):
     """Consulta múltiples CUITs separados por coma. Retorna solo los sancionados."""
     lista = [c.strip() for c in cuits.split(",") if c.strip()][:50]
-    alertas = {}
+    alertas, error = {}, None
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(f"{MEACI_URL}/api/cruce-cuits-bulk", params={"cuits": ",".join(lista)})
             if r.status_code == 200:
                 alertas = r.json().get("alertas", {})
-    except Exception:
-        pass
-    return {"alertas": alertas, "total_consultados": len(lista), "total_alertas": len(alertas)}
+            else:
+                error = f"MEACI no disponible (HTTP {r.status_code} en {MEACI_URL})"
+    except Exception as e:
+        error = f"MEACI no disponible: {e}"
+    resultado = {"alertas": alertas, "total_consultados": len(lista), "total_alertas": len(alertas)}
+    if error:
+        resultado["error"] = error  # sin esto, una falla se veía igual que "ninguna sanción"
+    return resultado
 
 @app.post("/api/reload")
 def reload_alias(x_refresh_token: str = Header(None)):
@@ -1524,3 +1533,16 @@ def estado_sistema():
         "ia": {"disponible": ia_disponible(), "limite_por_visitante": IA_LIMITE_POR_IP,
                "limite_global_dia": IA_LIMITE_GLOBAL},
     })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXTENSIONES (03/11/2026): carga del dataset publicado, diagnóstico y marco
+# normativo. Ver extensiones/*.py.
+# ─────────────────────────────────────────────────────────────────────────────
+from extensiones.dataset import router as _router_dataset  # noqa: E402
+from extensiones.diagnostico import router as _router_diagnostico  # noqa: E402
+from extensiones.marco_normativo import router as _router_normativa  # noqa: E402
+
+app.include_router(_router_dataset)
+app.include_router(_router_diagnostico)
+app.include_router(_router_normativa)

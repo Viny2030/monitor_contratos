@@ -25,4 +25,4 @@ jobs:
 
       - name: Correr tests
         run: |
-          pytest test_auditoria.py test_monitor.py test_busquedas.py test_extras.py -v
+          pytest test_auditoria.py test_monitor.py test_busquedas.py test_extras.py test_extensiones_03nov.py -v

@@ -644,6 +644,9 @@
     <a class="nav-item" data-section="monitor" onclick="nav('monitor',this)">
       <span class="nav-icon">🔍</span> Monitor
     </a>
+    <a class="nav-item" data-section="normativa" onclick="nav('normativa',this)">
+      <span class="nav-icon">⚖️</span> Marco normativo
+    </a>
     <div class="nav-section">Sistema</div>
     <a class="nav-item" data-section="estadisticas" onclick="nav('estadisticas',this)">
       <span class="nav-icon">📈</span> Estadísticas
@@ -852,6 +855,36 @@
       </div>
     </div>
 
+    <!-- ── MARCO NORMATIVO ── -->
+    <div id="sec-normativa" class="section">
+      <div class="section-header">
+        <div class="section-title">⚖️ Marco <span>normativo</span></div>
+        <div class="section-sub">RÉGIMEN · QUIÉN CONTRATA · PROCEDIMIENTO · MÓDULOS · CONTROLES</div>
+      </div>
+      <div class="filters">
+        <input id="nor-organismo" type="text" placeholder="Filtrar por organismo…">
+        <input id="nor-desde" type="date" title="Desde">
+        <input id="nor-hasta" type="date" title="Hasta">
+        <button class="btn" onclick="cargarNormativa()">Aplicar</button>
+      </div>
+      <div id="normativa-resumen"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Organismo</th><th>Tipo</th><th>Proveedor</th><th>Monto (módulos)</th><th>Observaciones</th><th>Aviso</th></tr></thead>
+          <tbody id="normativa-tbody">
+            <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Cargando…</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">📚 Normas consideradas</div>
+        <div id="normativa-catalogo" style="font-size:12px"></div>
+        <div style="font-size:11px;color:var(--text3);margin-top:10px">
+          Indicador de cumplimiento formal construido a partir del texto del aviso; no es un dictamen jurídico.
+        </div>
+      </div>
+    </div>
+
     <!-- ── MONITOR ── -->
     <div id="sec-monitor" class="section">
       <div class="section-header">
@@ -896,6 +929,17 @@
       <div class="section-header">
         <div class="section-title">🩺 <span>Estado</span> del sistema</div>
         <div class="section-sub">ÚLTIMO REPORTE · FUENTES · DÍAS FALTANTES · COBERTURA DE DATOS</div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">🔄 Datos y conexiones</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+          Desde el 22/10/2026 el Boletín Oficial no responde a servidores fuera de Argentina: los reportes
+          diarios se generan en un equipo en Argentina y se publican en el repositorio. Este botón trae al
+          sitio los que todavía no tiene.
+        </div>
+        <button class="btn" id="btn-actualizar-datos" onclick="actualizarDatos()">🔄 Actualizar datos</button>
+        <div id="actualizar-resultado" style="font-size:12px;margin:10px 0"></div>
+        <div id="diagnostico-content"><div class="loading"><div class="spinner"></div></div></div>
       </div>
       <div id="estado-content"><div class="loading"><div class="spinner"></div></div></div>
     </div>
@@ -1182,6 +1226,10 @@ function nav(seccion, el) {
     cargarProveedores();
   }
   if (seccion === 'estado') cargarEstado();
+  if (seccion === 'normativa' && !state.normInit) {
+    state.normInit = true;
+    cargarNormativa();
+  }
   if (seccion === 'sincuit' && !state.sinCuitInit) {
     state.sinCuitInit = true;
     cargarSinCuit();
@@ -1987,6 +2035,7 @@ function abrirOrganismoDesdeResumen(nombre) {
 
 // ── ESTADO DEL SISTEMA ────────────────────────────────────────────────────────
 async function cargarEstado() {
+  cargarDiagnostico();
   const el = document.getElementById('estado-content');
   try {
     const e = await api('/api/estado');
@@ -2015,6 +2064,97 @@ async function cargarEstado() {
       </div>`;
   } catch(err) {
     el.innerHTML = '<div style="color:var(--red);padding:20px">No se pudo cargar el estado</div>';
+  }
+}
+
+// ── MARCO NORMATIVO ──────────────────────────────────────────────────────────
+async function cargarNormativa() {
+  const res = document.getElementById('normativa-resumen');
+  const tb = document.getElementById('normativa-tbody');
+  const q = new URLSearchParams();
+  const org = document.getElementById('nor-organismo').value.trim();
+  const desde = document.getElementById('nor-desde').value;
+  const hasta = document.getElementById('nor-hasta').value;
+  if (org) q.set('organismo', org);
+  if (desde) q.set('desde', desde);
+  if (hasta) q.set('hasta', hasta);
+  tb.innerHTML = '<tr><td colspan="7"><div class="loading"><div class="spinner"></div> Cargando…</div></td></tr>';
+  try {
+    const d = await api('/api/contratos/normativa?' + q.toString());
+    if (d.sin_datos) { res.innerHTML = ''; tb.innerHTML = '<tr><td colspan="7">Sin datos</td></tr>'; return; }
+    const r = d.resumen;
+    const lista = o => Object.entries(o).map(([k, v]) => `<div class="stat-row"><span class="stat-key">${escHtml(k)}</span><span class="stat-val">${v}</span></div>`).join('');
+    res.innerHTML = `
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-val">${r.avisos}</div><div class="kpi-lbl">Contratos evaluados</div></div>
+        <div class="kpi"><div class="kpi-val">${r.regimen_propio}</div><div class="kpi-lbl">De entes con régimen propio</div></div>
+        <div class="kpi"><div class="kpi-val">${r.por_procedimiento['Contratación directa'] || 0}</div><div class="kpi-lbl">Contrataciones directas</div></div>
+        <div class="kpi"><div class="kpi-val">${r.directas_repetidas}</div><div class="kpi-lbl">Directas repetidas (mismo organismo y proveedor)</div></div>
+        <div class="kpi"><div class="kpi-val">${r.con_alertas}</div><div class="kpi-lbl">Con observaciones</div></div>
+      </div>
+      <div class="chart-row">
+        <div class="card"><div class="card-title">Por régimen</div>${lista(r.por_regimen)}</div>
+        <div class="card"><div class="card-title">Por procedimiento</div>${lista(r.por_procedimiento)}</div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin:8px 0">Se listan ${d.contratos.length} de ${d.total_con_alertas} contratos con observaciones, los más recientes primero.</div>`;
+    tb.innerHTML = d.contratos.map(e => `
+      <tr>
+        <td>${escHtml(e.fecha)}</td>
+        <td>${escHtml(e.organismo)}</td>
+        <td>${escHtml(e.tipo_proceso)}</td>
+        <td>${escHtml(e.proveedor)}${e.cuit ? '<br><span style="font-family:var(--mono);font-size:11px">' + escHtml(e.cuit) + '</span>' : ''}</td>
+        <td>${e.monto_modulos != null ? e.monto_modulos.toLocaleString('es-AR') + ' M' : '—'}</td>
+        <td style="font-size:12px">${e.alertas.map(escHtml).join('<br>')}<br><span style="color:var(--text3);font-size:11px">${escHtml(e.normas.join(' · '))}</span></td>
+        <td>${e.link ? `<a href="${escHtml(e.link)}" target="_blank">BORA ↗</a>` : '—'}</td>
+      </tr>`).join('') || '<tr><td colspan="7">Ningún contrato con observaciones en este filtro.</td></tr>';
+    if (!document.getElementById('normativa-catalogo').innerHTML) {
+      const cat = await api('/api/marco-normativo');
+      document.getElementById('normativa-catalogo').innerHTML = cat.normas.map(n =>
+        `<div class="stat-row"><span class="stat-key"><b>${escHtml(n.norma)}</b> — ${escHtml(n.nombre)}${n.nota ? '<br><span style="color:var(--text3)">' + escHtml(n.nota) + '</span>' : ''}</span><span class="stat-val" style="font-size:11px">${escHtml(n.estado)}</span></div>`).join('')
+        + `<div style="font-size:11px;color:var(--text3);margin-top:8px">Módulo: $${cat.modulo.valor.toLocaleString('es-AR')} (${escHtml(cat.modulo.fuente)}).</div>`;
+    }
+  } catch (err) {
+    res.innerHTML = '';
+    tb.innerHTML = `<tr><td colspan="7" style="color:var(--red)">No se pudo cargar el marco normativo: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+// ── ACTUALIZAR DATOS Y DIAGNÓSTICO ───────────────────────────────────────────
+async function actualizarDatos() {
+  const btn = document.getElementById('btn-actualizar-datos');
+  const out = document.getElementById('actualizar-resultado');
+  btn.disabled = true;
+  btn.textContent = '⏳ Consultando el repositorio…';
+  try {
+    const r = await fetch('/api/datos/actualizar', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'No se pudo actualizar');
+    const nuevos = [...(d.nuevos || []), ...(d.actualizados || [])];
+    out.innerHTML = `<span style="color:var(--green)">✅ ${nuevos.length ? nuevos.length + ' archivo(s) nuevo(s) o actualizado(s)' : 'Ya estaban todos los reportes publicados'}</span>
+      · último reporte: <b>${escHtml((d.ultimo_reporte || '—').replace('reporte_', '').replace('.xlsx', ''))}</b>
+      ${(d.errores || []).length ? ` · ⚠️ ${d.errores.length} no se pudieron bajar` : ''}`;
+    if (nuevos.length) {
+      Object.keys(state).forEach(k => { if (k.endsWith('Init') || k === 'monitorCargado') state[k] = false; });
+      cargarEstado();
+    }
+  } catch (err) {
+    out.innerHTML = `<span style="color:var(--red)">❌ ${escHtml(err.message)}</span>`;
+  }
+  btn.disabled = false;
+  btn.textContent = '🔄 Actualizar datos';
+}
+
+async function cargarDiagnostico() {
+  const el = document.getElementById('diagnostico-content');
+  try {
+    const d = await api('/api/diagnostico');
+    const fila = (nombre, ok, detalle) => `<div class="stat-row"><span class="stat-key">${nombre}</span><span class="stat-val" style="color:${ok ? 'var(--green)' : 'var(--red)'}">${ok ? '✅' : '❌'} ${escHtml(detalle)}</span></div>`;
+    el.innerHTML =
+      fila('Boletín Oficial desde el servidor', d.bora.alcanzable, d.bora.alcanzable ? `responde (${d.bora.segundos} s)` : 'no responde: los reportes se generan en el equipo de Argentina')
+      + fila('MEACI (sanciones internacionales)', d.meaci.alcanzable, d.meaci.alcanzable ? d.meaci.url : `no disponible en ${d.meaci.url}`)
+      + fila('Asistente de IA', d.ia.configurada, d.ia.configurada ? d.ia.modelo : 'sin clave configurada');
+  } catch (err) {
+    el.innerHTML = '<div style="color:var(--red)">No se pudo cargar el diagnóstico</div>';
   }
 }
 

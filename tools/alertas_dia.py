@@ -23,7 +23,7 @@ os.chdir(RAIZ)
 
 import pandas as pd  # noqa: E402
 
-SITIO = "https://monitorcontratos-production.up.railway.app"
+SITIO = "https://contratos.ecosistematransparencia.com.ar"
 
 
 def _meaci(cuits):
@@ -31,7 +31,7 @@ def _meaci(cuits):
         return {}
     try:
         import requests
-        url = os.getenv("MEACI_URL", "https://meaci-production.up.railway.app").rstrip("/")
+        url = os.getenv("MEACI_URL", "https://meaci.ecosistematransparencia.com.ar").rstrip("/")
         r = requests.get(f"{url}/api/cruce-cuits-bulk", params={"cuits": ",".join(cuits[:50])}, timeout=20)
         return r.json().get("alertas", {}) if r.status_code == 200 else {}
     except Exception as e:

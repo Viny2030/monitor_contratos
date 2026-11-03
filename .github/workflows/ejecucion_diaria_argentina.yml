@@ -1,14 +1,12 @@
 name: Monitor Diario desde Argentina (runner propio)
 
-# Complementa a ejecucion_diaria.yml (que no se modifica). Desde el 22/10/2026
-# el BORA no responde a los servidores de GitHub, así que este workflow corre en
-# un runner self-hosted con conexión de Argentina (etiqueta `argentina`) y usa
-# tools/actualizar_desde_pc.py: genera TODOS los días hábiles sin reporte (no
-# solo el de hoy), regenera la concentración y publica en `main`. Si un día el
-# runner estuvo apagado, la corrida siguiente completa lo que falte.
-#
-# Mientras no haya un runner con la etiqueta `argentina` registrado en ESTE
-# repo, las corridas quedan en cola y GitHub las cancela a las 24 h.
+# Rutina diaria principal desde el 03/11/2026. Desde el 22/10/2026 el BORA no
+# responde a los servidores de GitHub, así que este workflow corre en un runner
+# self-hosted con conexión de Argentina (etiqueta `argentina`, servicio en la PC)
+# y usa tools/actualizar_desde_pc.py: genera TODOS los días hábiles sin reporte
+# (no solo el de hoy), regenera la concentración y publica en `main`. Si la PC
+# está apagada, la corrida queda en cola hasta 24 h y se ejecuta al prenderla;
+# la siguiente completa lo que falte.
 
 on:
   schedule:
@@ -40,28 +38,50 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Configurar Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      # actions/setup-python falla en la PC: su instalador corre `./setup.ps1` con
+      # powershell.exe y la política de ejecución de scripts lo bloquea (pasó en el
+      # repo de licitaciones el 02/11/2026). El runner es un servicio de NETWORK
+      # SERVICE, que tampoco ve el Python del perfil del usuario. Se usa el paquete
+      # NuGet oficial de python.org, bajado una vez a la caché del runner, y pasos
+      # en cmd: nada de esto ejecuta scripts de PowerShell.
+      - name: Preparar Python
+        shell: cmd
+        env:
+          PY_VERSION: '3.13.17'
+        run: |
+          set "PYDIR=${{ runner.tool_cache }}\monitor-python\%PY_VERSION%"
+          if not exist "%PYDIR%\tools\python.exe" (
+            if not exist "%PYDIR%" mkdir "%PYDIR%" || exit /b 1
+            curl.exe -fsSL -o "%PYDIR%\python.zip" "https://api.nuget.org/v3-flatcontainer/python/%PY_VERSION%/python.%PY_VERSION%.nupkg" || exit /b 1
+            rem tar.exe de Windows (bsdtar) abre .zip; el tar de Git no, por eso la ruta completa
+            "%SystemRoot%\System32\tar.exe" -xf "%PYDIR%\python.zip" -C "%PYDIR%" || exit /b 1
+            del "%PYDIR%\python.zip"
+          )
+          "%PYDIR%\tools\python.exe" --version || exit /b 1
+          echo PYTHON_MONITOR=%PYDIR%\tools\python.exe>> "%GITHUB_ENV%"
 
       - name: Instalar dependencias
+        shell: cmd
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt holidays
+          "%PYTHON_MONITOR%" -m pip install --disable-pip-version-check -q --upgrade pip || exit /b 1
+          "%PYTHON_MONITOR%" -m pip install --disable-pip-version-check -q -r requirements.txt holidays || exit /b 1
 
       - name: Generar y publicar los reportes que falten
+        shell: cmd
         env:
           TGN_TOKEN: ${{ secrets.TGN_TOKEN }}
           PYTHONIOENCODING: utf-8
         run: |
-          git config user.name "Robot Monitor"
-          git config user.email "robot@noreply.github.com"
-          python -W ignore tools/actualizar_desde_pc.py --publicar --desde "${{ github.event.inputs.desde || '2026-10-21' }}"
+          git config user.name "Robot Monitor" || exit /b 1
+          git config user.email "robot@noreply.github.com" || exit /b 1
+          "%PYTHON_MONITOR%" -W ignore tools/actualizar_desde_pc.py --publicar --desde "${{ github.event.inputs.desde || '2026-10-21' }}"
 
-      - name: Notificar refresh al sitio
+      # El sitio también puede traer los reportes con su botón "Actualizar datos"
+      # (POST /api/datos/actualizar, sin clave); acá se lo pide apenas se publican.
+      - name: Avisar al sitio que hay datos nuevos
         continue-on-error: true
-        run: curl -s -X POST -H "x-refresh-token: ${{ secrets.REFRESH_TOKEN }}" https://contratos.ecosistematransparencia.com.ar/api/reload
+        shell: cmd
+        run: curl.exe -s -X POST https://contratos.ecosistematransparencia.com.ar/api/datos/actualizar
 
       - name: Notificar fallo
         if: failure()

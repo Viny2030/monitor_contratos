@@ -14,7 +14,14 @@ librería `anthropic`, todas las funciones devuelven
 import os
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+
+# Claude Sonnet 5.5 razona por defecto: en estas explicaciones cortas el
+# razonamiento puede consumir max_tokens y dejar la respuesta sin texto.
+# `between_tools` es la forma de apagarlo en Sonnet 5.5 (`disabled` da 400);
+# es el mismo criterio que usa el Monitor de Licitaciones. Otros modelos se
+# llaman sin el parámetro.
+_THINKING_APAGADO = {"claude-sonnet-5-5": {"type": "between_tools"}}
 
 try:
     import anthropic
@@ -42,17 +49,23 @@ def _pedir_a_claude(system: str, prompt: str, max_tokens: int = 500) -> dict:
         return _no_disponible(
             "ANTHROPIC_API_KEY no está configurada — el asistente de IA está deshabilitado."
         )
+    extra = {"thinking": _THINKING_APAGADO[MODEL]} if MODEL in _THINKING_APAGADO else {}
     try:
         resp = _client.messages.create(
             model=MODEL,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": prompt}],
+            **extra,
         )
+        if resp.stop_reason == "refusal":
+            return _no_disponible("El modelo declinó responder esta consulta.")
         texto = "".join(
             bloque.text for bloque in resp.content if getattr(bloque, "type", "") == "text"
-        )
-        return {"disponible": True, "explicacion": texto.strip()}
+        ).strip()
+        if not texto:
+            return _no_disponible(f"La IA respondió sin texto (stop_reason={resp.stop_reason}).")
+        return {"disponible": True, "explicacion": texto}
     except Exception as e:
         return _no_disponible(f"Error al consultar la IA: {e}")
 

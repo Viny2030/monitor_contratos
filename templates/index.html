@@ -1549,6 +1549,16 @@ function escHtml(t) {
   return String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// Texto de la IA: escapado y con el markdown básico que usa Claude (**negrita**,
+// # títulos, viñetas). Antes se insertaba tal cual y se veían los asteriscos.
+// Los saltos de línea los respeta el white-space: pre-wrap de .ia-box.
+function iaHtml(t) {
+  return escHtml(t)
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/^#{1,6}\s*(.+)$/gm, '<b>$1</b>')
+    .replace(/^\s*[-*]\s+/gm, '• ');
+}
+
 function abrirOrganismo(nombre, agrupar) {
   document.getElementById('org-search').value = nombre;
   buscarOrganismo(agrupar);
@@ -1674,7 +1684,7 @@ async function explicarOrganismoIA() {
     });
     const data = await resp.json();
     if (data.disponible) {
-      box.innerHTML = `<span class="ia-label">🤖 Explicación (Claude)</span>${data.explicacion}`;
+      box.innerHTML = `<span class="ia-label">🤖 Explicación (Claude)</span>${iaHtml(data.explicacion)}`;
       btn.style.display = 'none';
     } else {
       box.innerHTML = `<span class="ia-label">IA no disponible</span>${data.motivo || 'Sin detalle.'}`;
@@ -1795,7 +1805,7 @@ async function explicarProveedorIA() {
     });
     const data = await resp.json();
     if (data.disponible) {
-      box.innerHTML = `<span class="ia-label">🤖 Explicación (Claude)</span>${data.explicacion}`;
+      box.innerHTML = `<span class="ia-label">🤖 Explicación (Claude)</span>${iaHtml(data.explicacion)}`;
       btn.style.display = 'none';
     } else {
       box.innerHTML = `<span class="ia-label">IA no disponible</span>${data.motivo || 'Sin detalle.'}`;
@@ -1924,7 +1934,7 @@ async function explicarAlertaIA(tipo, idx) {
     });
     const data = await resp.json();
     box.innerHTML = data.disponible
-      ? `<span class="ia-label">🤖 Explicación (Claude)</span>${data.explicacion}`
+      ? `<span class="ia-label">🤖 Explicación (Claude)</span>${iaHtml(data.explicacion)}`
       : `<span class="ia-label">IA no disponible</span>${data.motivo || 'Sin detalle.'}`;
   } catch(e) {
     box.innerHTML = `<span class="ia-label">Error</span>No se pudo consultar la IA.`;

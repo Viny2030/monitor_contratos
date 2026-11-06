@@ -1017,6 +1017,19 @@
           <li><strong>🤖 Explicar con IA</strong> — redacta en lenguaje simple por qué un perfil o una alerta llamó la atención. Hasta 10 consultas por día por visitante; no cambia ningún indicador.</li>
         </ul>
 
+<div id="relaciones">
+  <h2>🕸️ Relación con los otros sitios del ecosistema</h2>
+  <p>Este sitio es parte del <strong>Ecosistema de Transparencia</strong>: once monitores que se consultan entre sí. Abajo, con qué sitios intercambia datos (<em>usa →</em> = toma datos de ese sitio; <em>← lo usa</em> = ese sitio toma datos de este) y de qué fuentes oficiales se alimenta. El grafo es interactivo: hacé clic en cualquier sitio para ver su ficha.</p>
+  <iframe src="https://mapa.ecosistematransparencia.com.ar/grafo?embed=1&amp;nodo=contratos" title="Relación con los otros sitios del ecosistema" loading="lazy"
+          style="width:100%;height:560px;border:1px solid #cbd5e1;border-radius:10px;background:#fff"></iframe>
+  <p style="font-size:.85em"><a href="https://mapa.ecosistematransparencia.com.ar/grafo" target="_blank" rel="noopener">Abrir el grafo completo ↗</a></p>
+  <h3>Conexiones</h3>
+  <ul><li><strong>← lo usa Comprar</strong>: Mismas adjudicaciones del BORA; la validación cruzada diaria comprueba que coincidan día por día y en monto.</li><li><strong>usa → MEACI</strong>: Cruza CUIT de proveedores contra las sancionadas de MEACI (/api/cruce-cuits-bulk).</li><li><strong>← lo usa Decla</strong>: Cruce de conflicto de interés: CUIT de funcionarios y sus sociedades × adjudicaciones del BORA.</li><li><strong>← lo usa Monitor IRI</strong>: Toma las licitaciones 2026 del BORA para marcar a los organismos que compran fuera de COMPR.AR (“sin dato de directas”). El % de directas sale de COMPR.AR 2016-2026.</li><li><strong>← lo usa Mapa</strong>: Enlace y estado en vivo. La validación cruzada diaria (lun–vie 13:00) compara Comprar y Contratos día por día y peso por peso.</li></ul>
+  <h3>Fuentes oficiales</h3>
+  <ul><li>Boletín Oficial (BORA)</li><li>COMPR.AR — adjudicaciones 2016-2026 (datos.gob.ar)</li><li>TGN</li></ul>
+  <p style="font-size:.85em">Detalle de todas las conexiones y de cómo se verifican las cifras entre sitios: <a href="https://mapa.ecosistematransparencia.com.ar/manual#conexiones" target="_blank" rel="noopener">mapa.ecosistematransparencia.com.ar/manual#conexiones</a></p>
+</div>
+
         <h2>Aviso</h2>
         <p>Herramienta experimental y académica. Los datos provienen de fuentes públicas oficiales. Los resultados son indicadores algorítmicos de riesgo: no implican juicio de valor, acusación ni determinación de responsabilidad sobre ninguna empresa, organismo o persona. Antes de sacar conclusiones, consultá el aviso original del BORA (enlace ↗ en cada fila).</p>
       </div>
@@ -1082,6 +1095,19 @@
           <li><strong>🌍 ALERTA</strong> — the CUIT appears in international sanctions databases (MEACI service). If MEACI does not respond, the site reports an error instead of "no matches".</li>
           <li><strong>🤖 Explain with AI</strong> — writes, in plain language, why a profile or alert stood out. Up to 3 requests per visitor per day; it does not change any indicator.</li>
         </ul>
+
+<div id="relaciones">
+  <h2>🕸️ How this site connects to the rest of the ecosystem</h2>
+  <p>This site is part of the <strong>Transparency Ecosystem</strong>: eleven monitors that query each other. Below, which sites it exchanges data with (<em>uses →</em> = takes data from that site; <em>← used by</em> = that site takes data from this one) and which official sources feed it. The graph is interactive: click any site to see its profile.</p>
+  <iframe src="https://mapa.ecosistematransparencia.com.ar/grafo?embed=1&amp;nodo=contratos&amp;lang=en" title="How this site connects to the rest of the ecosystem" loading="lazy"
+          style="width:100%;height:560px;border:1px solid #cbd5e1;border-radius:10px;background:#fff"></iframe>
+  <p style="font-size:.85em"><a href="https://mapa.ecosistematransparencia.com.ar/grafo?lang=en" target="_blank" rel="noopener">Open the full graph ↗</a></p>
+  <h3>Connections</h3>
+  <ul><li><strong>← used by Comprar</strong>: Same BORA awards; the daily cross-validation checks they match day by day and in amount.</li><li><strong>uses → MEACI</strong>: Checks supplier CUITs against MEACI's sanctioned list (/api/cruce-cuits-bulk).</li><li><strong>← used by Decla</strong>: Conflict-of-interest check: officials' CUITs and their companies × BORA awards.</li><li><strong>← used by Monitor IRI</strong>: Pulls 2026 BORA tenders to flag agencies that buy outside COMPR.AR (“no direct-award data”). The direct-award % comes from COMPR.AR 2016-2026.</li><li><strong>← used by Mapa</strong>: Link and live status. The daily cross-validation (Mon–Fri 13:00) compares Comprar and Contratos day by day, to the peso.</li></ul>
+  <h3>Official sources</h3>
+  <ul><li>Official Gazette (BORA)</li><li>COMPR.AR — 2016-2026 awards (datos.gob.ar)</li><li>TGN</li></ul>
+  <p style="font-size:.85em">Every connection in detail, and how figures are cross-checked between sites: <a href="https://mapa.ecosistematransparencia.com.ar/en/manual#conexiones" target="_blank" rel="noopener">mapa.ecosistematransparencia.com.ar/en/manual#conexiones</a></p>
+</div>
 
         <h2>Disclaimer</h2>
         <p>Experimental and academic tool. The data comes from official public sources. Results are algorithmic risk indicators: they do not imply a value judgment, an accusation or a finding of liability against any company, agency or person. Before drawing conclusions, check the original BORA notice (↗ link in each row).</p>

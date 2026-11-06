@@ -133,6 +133,10 @@ def main(argv=None):
         print("\n🔬 Análisis de concentración…", flush=True)
         r = _correr(sys.executable, "-W", "ignore", "analisis_concentracion.py", "--exportar", check=False)
         print("   OK" if r.returncode == 0 else f"   ⚠️ falló (código {r.returncode}): {r.stderr[-500:]}")
+        print("
+🔗 Cruce con COMPR.AR 2016-2026…", flush=True)
+        r = _correr(sys.executable, "-W", "ignore", "tools/cruzar_comprar.py", check=False)
+        print(r.stdout[-800:] if r.returncode == 0 else f"   ⚠️ falló (código {r.returncode}): {r.stderr[-500:]}")
     if a.publicar and generados:
         publicar(generados)
     elif generados:

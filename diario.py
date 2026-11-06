@@ -810,14 +810,11 @@ def cruzar_fuentes(
         if cuit_adj and cuit_adj in comprar_por_cuit:
             match_comprar = comprar_por_cuit[cuit_adj]
 
-        # 2) Por organismo (2+ palabras en común)
-        if not match_comprar and org_norm:
-            palabras_org = set(org_norm.split())
-            for c in comprar_por_org:
-                org_c = _normalizar_organismo(str(c.get("organismo_contratante", "")))
-                coincidencias = len(palabras_org & set(org_c.split()))
-                if coincidencias >= 2:
-                    match_comprar.append(c)
+        # (Antes había un 2° intento "por organismo, 2+ palabras en común" que
+        # daba por cruzado el aviso con CUALQUIER proceso del mismo organismo.
+        # El cruce por el mismo proceso, contra las adjudicaciones COMPR.AR
+        # 2016-2026, lo hace tools/cruzar_comprar.py → data/cruce/comprar.csv,
+        # y el sitio lo aplica al cargar.)
 
         cm = match_comprar[0] if match_comprar else {}
 

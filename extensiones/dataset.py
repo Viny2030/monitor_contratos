@@ -28,12 +28,13 @@ GITHUB_RAMA = os.getenv("DATASET_RAMA", "main")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")  # opcional: sin token, 60 consultas/hora por IP
 SINCRONIZAR_ESPERA_SEG = int(os.getenv("SINCRONIZAR_ESPERA_SEG", "120"))
 
-# Lo que el tablero lee: reportes diarios, concentración y correcciones de avisos.
+# Lo que el tablero lee: reportes diarios, concentración, correcciones de avisos y el cruce COMPR.AR.
 _RUTA_DATASET = re.compile(
     r"^data/("
     r"\d{4}-\d{2}/(?:reporte|flujo_licitaciones)_\d{4}-\d{2}-\d{2}\.xlsx"
     r"|analisis/concentracion_\d{4}-\d{2}-\d{2}\.xlsx"
     r"|correcciones/[\w.-]+\.csv"
+    r"|cruce/[\w.-]+\.csv"
     r")$"
 )
 

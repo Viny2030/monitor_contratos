@@ -163,19 +163,6 @@ def _cargar_df() -> pd.DataFrame:
         ], ignore_index=True)
     if "cuit_proveedor" in df_total.columns:
         df_total["cuit_proveedor"] = df_total["cuit_proveedor"].astype(str).str.replace(r"\.0$", "", regex=True).replace("nan", "")
-    # Recalcular el riesgo con las reglas vigentes (los reportes viejos guardaron el
-    # nivel con indicadores ya retirados: "Sin CUIT", "Sin cobro TGN", "monto < $10M").
-    # No se modifican los archivos, solo lo que muestra la web.
-    try:
-        from diario import _agregar_riesgo
-        base = df_total.copy()
-        if "cancelada" in base.columns:
-            base["cancelada"] = base["cancelada"].astype(str).str.strip().str.lower().isin(["true", "1"])
-        recalculado = _agregar_riesgo(base)
-        for c in ["indicadores_riesgo", "score_riesgo_licit", "nivel_riesgo_licit"]:
-            df_total[c] = recalculado[c].values
-    except Exception as e:
-        print(f"⚠️ No se pudo recalcular el riesgo: {e}")
     # Normalizar columna fecha. Hasta mayo los reportes usaban "fecha"; desde junio,
     # "fecha_publicacion". Antes se convertía solo la primera columna encontrada
     # ("fecha"), así que el 61% de los contratos (junio en adelante) quedaba sin
@@ -190,6 +177,27 @@ def _cargar_df() -> pd.DataFrame:
     # Correcciones manuales/recuperadas (CUIT, proveedor, monto) por aviso: no se
     # tocan los Excel originales, se completan solo celdas vacías.
     df_total = _aplicar_correcciones(df_total)
+    # Montos del BORA mal leídos ("$66", "$84": el scraping cortó la cifra) se
+    # dejan vacíos para que no sumen y los pueda completar COMPR.AR.
+    df_total = _limpiar_montos_bora(df_total)
+    # Cruce con las adjudicaciones COMPR.AR 2016-2026 (data/cruce/comprar.csv):
+    # reemplaza el cruce viejo de los reportes y completa CUIT, proveedor y
+    # monto vacíos con los del mismo proceso.
+    df_total = _aplicar_cruce_comprar(df_total)
+    # Recalcular el riesgo con las reglas vigentes (los reportes viejos guardaron el
+    # nivel con indicadores ya retirados: "Sin CUIT", "Sin cobro TGN", "monto < $10M").
+    # Va después de las correcciones y del cruce, para que use los datos completos.
+    # No se modifican los archivos, solo lo que muestra la web.
+    try:
+        from diario import _agregar_riesgo
+        base = df_total.copy()
+        if "cancelada" in base.columns:
+            base["cancelada"] = base["cancelada"].astype(str).str.strip().str.lower().isin(["true", "1"])
+        recalculado = _agregar_riesgo(base)
+        for c in ["indicadores_riesgo", "score_riesgo_licit", "nivel_riesgo_licit"]:
+            df_total[c] = recalculado[c].values
+    except Exception as e:
+        print(f"⚠️ No se pudo recalcular el riesgo: {e}")
     # Nombre de organismo normalizado (sin sufijos como "Solicitudes de Provisión")
     col_org = _col(df_total, ["organismo_contratante", "organismo"])
     if col_org:
@@ -322,6 +330,69 @@ def _organismo_base(nombre: str) -> str:
         anterior = n
         n = _SUFIJOS_ORGANISMO.sub("", n).strip()
     return n
+
+
+# ── Cruce con COMPR.AR 2016-2026 (data/cruce/comprar.csv) ────────────────────
+CRUCE_COMPRAR_CSV = os.path.join(DATA_DIR, "cruce", "comprar.csv")
+_COLS_COMPRAR = ["en_comprar", "nro_proceso_comprar", "tipo_procedimiento", "modalidad",
+                 "monto_comprar", "rubros", "unidad_operativa"]
+
+
+def _limpiar_montos_bora(df: pd.DataFrame) -> pd.DataFrame:
+    """Vacía montos del BORA menores a $1.000: son cifras cortadas por el
+    scraping ("$66", "$84"), no adjudicaciones reales."""
+    if "monto_adjudicado_bora" not in df.columns:
+        return df
+    df = df.copy()
+    v = df["monto_adjudicado_bora"].apply(_parsear_monto)
+    malos = (v > 0) & (v < 1000)
+    df.loc[malos, "monto_adjudicado_bora"] = ""
+    return df
+
+
+def _aplicar_cruce_comprar(df: pd.DataFrame) -> pd.DataFrame:
+    """Aplica data/cruce/comprar.csv (lo genera tools/cruzar_comprar.py):
+    reemplaza las columnas de COMPR.AR de los reportes (el cruce viejo usaba el
+    portal del día y no era confiable), completa CUIT/proveedor/monto vacíos
+    con los del mismo proceso y recalcula la alerta. Marca en monto_fuente de
+    dónde sale cada monto."""
+    if "link_bora" not in df.columns:
+        return df
+    df = df.copy()
+    if "monto_adjudicado_bora" in df.columns:
+        df["monto_fuente"] = (df["monto_adjudicado_bora"].astype(str).str.strip() != "").map({True: "BORA", False: ""})
+    if not os.path.exists(CRUCE_COMPRAR_CSV):
+        return df
+    try:
+        cruce = pd.read_csv(CRUCE_COMPRAR_CSV, dtype=str).fillna("").drop_duplicates("link_bora", keep="last").set_index("link_bora")
+    except Exception as e:
+        print(f"⚠️ No se pudo leer el cruce COMPR.AR: {e}")
+        return df
+    hay = df["link_bora"].isin(cruce.index)
+    if not hay.any():
+        return df
+    for c in _COLS_COMPRAR:
+        if c in cruce.columns:
+            df.loc[hay, c] = df.loc[hay, "link_bora"].map(cruce[c])
+    si = hay & (df.get("en_comprar", "") == "✅ SÍ")
+    for destino, origen in (("cuit_proveedor", "cuit_comprar"), ("proveedor_adjudicado", "proveedor_comprar"),
+                            ("monto_adjudicado_bora", "monto_comprar")):
+        if destino not in df.columns or origen not in cruce.columns:
+            continue
+        nuevo = df["link_bora"].map(cruce[origen]).fillna("")
+        vacio = df[destino].astype(str).str.strip() == ""
+        llenar = si & vacio & (nuevo != "")
+        if destino == "proveedor_adjudicado":
+            llenar &= ~nuevo.str.contains(";", regex=False)  # solo si COMPR.AR tiene un único proveedor
+        df.loc[llenar, destino] = nuevo[llenar]
+        if destino == "monto_adjudicado_bora":
+            df.loc[llenar, "monto_fuente"] = "COMPR.AR"
+    try:
+        from cruce_comprar import alerta
+        df.loc[hay, "alerta"] = df.loc[hay].apply(lambda r: alerta(r.to_dict()), axis=1)
+    except Exception as e:
+        print(f"⚠️ No se pudo recalcular la alerta: {e}")
+    return df
 
 
 # ── Correcciones por aviso (data/correcciones/*.csv) ─────────────────────────

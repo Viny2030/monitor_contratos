@@ -72,6 +72,15 @@ jobs:
         timeout-minutes: 30
         continue-on-error: true
 
+      # ── 6b'. Cruce con COMPR.AR 2016-2026 ──────────────────────
+      # Vuelve a cruzar todos los avisos con las adjudicaciones de datos.gob.ar
+      # (mismo proceso: tipo + número/año + organismo) → data/cruce/comprar.csv.
+      # No modifica los reportes: el sitio lo aplica al cargar.
+      - name: Cruce con COMPR.AR
+        run: python tools/cruzar_comprar.py
+        timeout-minutes: 15
+        continue-on-error: true
+
       # ── 6c. Armar alertas del día (riesgo Alto y MEACI) ───────
       # Solo si el reporte de hoy es nuevo, para no repetir el aviso en la corrida de las 12:00.
       - name: Armar alertas del día

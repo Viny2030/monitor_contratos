@@ -941,6 +941,132 @@ def perfil_proveedor(cuit: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# API — GRAFO ORGANISMO ↔ PROVEEDOR
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _nombre_para_grafo(nombre: str) -> str:
+    """Saca restos del texto del aviso: 'a favor de la firma X', 'X CUIL NRO …', paréntesis sueltos."""
+    n = re.sub(r"^\s*(?:a\s+)?favor\s+de\s+(?:la\s+)?(?:firma|empresa)\s+", "", str(nombre), flags=re.I)
+    n = re.split(r"\s+(?:CUIT|CUIL)\b", n, maxsplit=1, flags=re.I)[0]
+    return re.sub(r"[\s(,;:-]+$", "", n).strip()
+
+
+def _grafo_organismo_proveedor(df: pd.DataFrame, min_avisos: int = 1,
+                               solo_compartidos: bool = False) -> dict:
+    """
+    Red bipartita de adjudicaciones: un nodo por organismo y uno por proveedor
+    (CUIT), y una arista por cada par que tiene al menos una adjudicación.
+
+    Se usan solo los avisos con CUIT legible: sin CUIT no se puede saber si dos
+    avisos son del mismo proveedor (quedan contados en resumen.sin_cuit).
+    La concentración de cada organismo es la parte del principal proveedor, por
+    monto cuando al menos la mitad de sus avisos tiene monto y, si no, por
+    cantidad de avisos. Es informativa: no entra en ningún puntaje.
+    """
+    vacio = {"nodos": [], "aristas": [], "resumen": {"organismos": 0, "proveedores": 0, "aristas": 0,
+                                                     "compartidos": 0, "avisos": 0, "sin_cuit": 0}}
+    col_org   = _col(df, ["organismo_base", "organismo_contratante", "organismo"])
+    col_cuit  = _col(df, ["cuit_proveedor", "cuit"])
+    col_prov  = _col(df, ["proveedor_adjudicado", "proveedor_nombre"])
+    col_monto = _col(df, ["monto_adjudicado_bora", "monto_adjudicado"])
+    col_tipo  = _col(df, ["tipo_proceso_bora", "tipo_procedimiento"])
+    col_fecha = _col(df, ["fecha", "fecha_publicacion"])
+    col_nivel = _col(df, ["nivel_riesgo_licit"])
+    if df.empty or not col_org or not col_cuit:
+        return vacio
+
+    d = df.copy()
+    d["_cuit"] = d[col_cuit].map(_solo_digitos)
+    sin_cuit = int((d["_cuit"] == "").sum())
+    d = d[(d["_cuit"] != "") & d[col_org].astype(str).str.strip().ne("")]
+    if d.empty:
+        vacio["resumen"]["sin_cuit"] = sin_cuit
+        return vacio
+    d["_org"]    = d[col_org].astype(str).str.strip()
+    d["_monto"]  = d[col_monto].apply(_parsear_monto) if col_monto else 0.0
+    d["_con_m"]  = d["_monto"] > 0
+    d["_directa"] = (d[col_tipo].astype(str).map(_norm).str.contains("DIRECTA", regex=False)
+                     if col_tipo else False)
+    d["_alto"]   = (d[col_nivel].astype(str).str.upper() == "ALTO") if col_nivel else False
+
+    pares = d.groupby(["_org", "_cuit"]).agg(
+        avisos=("_cuit", "size"), monto=("_monto", "sum"),
+        directas=("_directa", "sum"), alto=("_alto", "sum")).reset_index()
+    pares = pares[pares["avisos"] >= max(1, min_avisos)]
+    if solo_compartidos:
+        n_org = pares.groupby("_cuit")["_org"].nunique()
+        pares = pares[pares["_cuit"].isin(n_org[n_org > 1].index)]
+    if pares.empty:
+        vacio["resumen"]["sin_cuit"] = sin_cuit
+        return vacio
+    d = d.merge(pares[["_org", "_cuit"]], on=["_org", "_cuit"])
+
+    nodos = []
+    for org, g in d.groupby("_org"):
+        por_prov = g.groupby("_cuit").agg(n=("_cuit", "size"), m=("_monto", "sum"))
+        por_monto = g["_con_m"].mean() >= 0.5 and por_prov["m"].sum() > 0
+        base = por_prov["m"] if por_monto else por_prov["n"]
+        nodos.append({
+            "id": "o:" + org, "tipo": "organismo", "label": org,
+            "avisos": int(len(g)), "monto": float(g["_monto"].sum()),
+            "proveedores": int(por_prov.shape[0]),
+            "concentracion": round(float(base.max() / base.sum()) * 100, 1) if base.sum() else None,
+            "concentracion_base": "monto" if por_monto else "avisos",
+        })
+    for cuit, g in d.groupby("_cuit"):
+        nombre = ""
+        if col_prov:
+            nombres = g[col_prov].astype(str).str.strip()
+            nombres = nombres[nombres.ne("") & nombres.ne("nan")]
+            if len(nombres):
+                nombre = _nombre_para_grafo(nombres.value_counts().index[0])
+        nodos.append({
+            "id": "p:" + cuit, "tipo": "proveedor", "label": (nombre or cuit)[:60],
+            "cuit": str(g[col_cuit].iloc[0]).strip(), "cuit_digitos": cuit,
+            "avisos": int(len(g)), "monto": float(g["_monto"].sum()),
+            "organismos": int(g["_org"].nunique()),
+            "directas": int(g["_directa"].sum()), "riesgo_alto": int(g["_alto"].sum()),
+        })
+    aristas = [{"from": "o:" + r["_org"], "to": "p:" + r["_cuit"], "avisos": int(r["avisos"]),
+                "monto": float(r["monto"]), "directas": int(r["directas"])}
+               for _, r in pares.iterrows()]
+    compartidos = sorted((n for n in nodos if n["tipo"] == "proveedor" and n["organismos"] > 1),
+                         key=lambda n: (-n["organismos"], -n["avisos"]))
+    fechas = pd.to_datetime(d[col_fecha], errors="coerce").dropna() if col_fecha else pd.Series(dtype="datetime64[ns]")
+    return {
+        "nodos": nodos, "aristas": aristas,
+        "resumen": {
+            "organismos": sum(1 for n in nodos if n["tipo"] == "organismo"),
+            "proveedores": sum(1 for n in nodos if n["tipo"] == "proveedor"),
+            "aristas": len(aristas), "compartidos": len(compartidos),
+            "avisos": int(len(d)), "sin_cuit": sin_cuit,
+            "desde": fechas.min().strftime("%Y-%m-%d") if len(fechas) else None,
+            "hasta": fechas.max().strftime("%Y-%m-%d") if len(fechas) else None,
+            "top_compartidos": [{"cuit": n["cuit"], "label": n["label"], "organismos": n["organismos"],
+                                 "avisos": n["avisos"]} for n in compartidos[:10]],
+        },
+    }
+
+
+@app.get("/api/grafo")
+def grafo(
+    organismo:        str | None = Query(None),
+    cuit:             str | None = Query(None),
+    desde:            str | None = Query(None),
+    hasta:            str | None = Query(None),
+    min_avisos:       int        = Query(1, ge=1, le=50),
+    solo_compartidos: bool       = Query(False),
+):
+    """Red organismo ↔ proveedor de las adjudicaciones del BORA (pestaña Grafo)."""
+    registrar_visita("grafo")
+    df = _cargar_df()
+    if df.empty:
+        return _grafo_organismo_proveedor(df)
+    df = _filtrar_contratos(df, organismo=organismo, cuit=cuit, desde=desde, hasta=hasta)
+    return _json_seguro(_grafo_organismo_proveedor(df, min_avisos, solo_compartidos))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API — MONITOR
 # ─────────────────────────────────────────────────────────────────────────────
 

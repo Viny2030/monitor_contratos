@@ -600,6 +600,23 @@
     }
 
     /* ── RESPONSIVE ── */
+    /* ── GRAFO ORGANISMO ↔ PROVEEDOR ── */
+    .grafo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+    .grafo-canvas { height: 620px; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; }
+    .grafo-side .card { margin-bottom: 14px; }
+    .grafo-leyenda { display: flex; flex-wrap: wrap; gap: 14px; font-size: 11px; color: var(--text2); margin: 10px 0 14px; }
+    .grafo-leyenda i { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; }
+    .grafo-info { font-size: 12px; color: var(--text2); line-height: 1.6; }
+    .grafo-info b { color: var(--text); }
+    .grafo-lista { font-size: 12px; list-style: none; }
+    .grafo-lista li { padding: 6px 0; border-bottom: 1px solid var(--border); cursor: pointer; color: var(--text2); }
+    .grafo-lista li:hover { color: var(--accent3); }
+    .filters input.grafo-check { min-width: 0; width: 15px; height: 15px; padding: 0; accent-color: var(--accent); }
+    @media (max-width: 900px) {
+      .grafo-layout { grid-template-columns: 1fr; }
+      .grafo-canvas { height: 460px; }
+    }
+
     @media (max-width: 768px) {
       .layout { grid-template-columns: 1fr; }
       .sidebar { display: none; }
@@ -637,6 +654,9 @@
     </a>
     <a class="nav-item" data-section="proveedores" onclick="nav('proveedores',this)">
       <span class="nav-icon">🏢</span> Proveedores
+    </a>
+    <a class="nav-item" data-section="grafo" onclick="nav('grafo',this)">
+      <span class="nav-icon">🕸️</span> Grafo
     </a>
     <a class="nav-item" data-section="sincuit" onclick="nav('sincuit',this)">
       <span class="nav-icon">⚠️</span> Sin CUIT
@@ -833,6 +853,56 @@
       <div id="prov-perfil" style="margin-top:20px;"></div>
     </div>
 
+    <!-- ── GRAFO ── -->
+    <div id="sec-grafo" class="section">
+      <div class="section-header">
+        <div class="section-title">🕸️ <span>Grafo</span> organismo ↔ proveedor</div>
+        <div class="section-sub">QUIÉN LE ADJUDICA A QUIÉN · AVISOS DEL BORA CON CUIT</div>
+      </div>
+      <div class="filters">
+        <input id="grafo-organismo" type="text" placeholder="Organismo o sigla (ANSES, ARCA…)">
+        <input id="grafo-cuit" type="text" placeholder="CUIT (con o sin guiones)…">
+        <input id="grafo-desde" type="date" title="Desde">
+        <input id="grafo-hasta" type="date" title="Hasta">
+        <select id="grafo-min" title="Mínimo de avisos por vínculo">
+          <option value="1">Todos los vínculos</option>
+          <option value="2">Vínculos con 2 o más avisos</option>
+          <option value="3">Vínculos con 3 o más avisos</option>
+        </select>
+        <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">
+          <input id="grafo-compartidos" type="checkbox" class="grafo-check"> Solo proveedores de varios organismos
+        </label>
+        <button class="btn" onclick="cargarGrafo()">Ver grafo</button>
+      </div>
+      <div id="grafo-kpis" class="kpi-grid"></div>
+      <div class="grafo-leyenda">
+        <span><i style="background:#1e6fd9"></i>Organismo</span>
+        <span><i style="background:#1db87a;border-radius:50%"></i>Proveedor de un organismo</span>
+        <span><i style="background:#f0a500;border-radius:50%"></i>Proveedor de varios organismos</span>
+        <span><i style="background:#e03c3c;border-radius:50%"></i>🌍 Alerta MEACI</span>
+        <span><i style="background:#e03c3c;height:3px;vertical-align:3px"></i>Vínculo con contratación directa</span>
+        <span>Tamaño: cantidad de avisos · Grosor: avisos del vínculo</span>
+      </div>
+      <div class="grafo-layout">
+        <div id="grafo-canvas" class="grafo-canvas"><div class="loading"><div class="spinner"></div> Cargando…</div></div>
+        <div class="grafo-side">
+          <div class="card">
+            <div class="card-title">🔎 <span>Detalle</span></div>
+            <div id="grafo-info" class="grafo-info">Hacé clic en un nodo para ver sus datos. Doble clic abre el perfil.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">🔗 Proveedores&nbsp;<span>compartidos</span></div>
+            <ul id="grafo-compartidos-lista" class="grafo-lista"></ul>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:12px">
+        Un vínculo indica que el organismo publicó en el BORA al menos una adjudicación a ese CUIT. Que un proveedor
+        trabaje con varios organismos o concentre las compras de uno no implica, por sí solo, ninguna irregularidad.
+        Los avisos sin CUIT no entran al grafo. Más detalle en el Manual de Uso, sección "Grafo".
+      </div>
+    </div>
+
     <!-- ── SIN CUIT ── -->
     <div id="sec-sincuit" class="section">
       <div class="section-header">
@@ -1005,11 +1075,24 @@
           <li><strong>Organismos</strong> — ranking por monto adjudicado (y por cantidad cuando no hay monto). En <em>Perfil individual</em> escribí el nombre o la sigla y elegí de la lista; si hay varias coincidencias (por ejemplo, las direcciones regionales de ARCA) podés abrir una o verlas todas juntas. También podés hacer clic en una barra del gráfico. El <strong>HHI</strong> mide la concentración de proveedores: más de 2.500 es alta concentración. Se calcula por monto cuando hay montos suficientes y, si no, por cantidad de adjudicaciones; el perfil indica cuál usó.</li>
           <li><strong>Proveedores</strong> — adjudicaciones agrupadas por CUIT. Buscá por CUIT (con o sin guiones) o por nombre. La columna "Cobrado TGN" figura como n/d porque la Tesorería no informa pagos por CUIT.</li>
           <li><strong>Sin CUIT</strong> — avisos cuyo CUIT no se pudo leer, con el enlace al BORA para revisarlos. No aparecen en Proveedores.</li>
+          <li><strong>Grafo</strong> — red de organismos y proveedores unidos por sus adjudicaciones (ver abajo).</li>
           <li><strong>Monitor</strong> — <em>Fragmentación</em>: organismos con varios contratos de hasta 1.000 módulos, posible división para evitar un procedimiento más competitivo. <em>Proveedor único</em>: organismos que adjudicaron siempre al mismo CUIT. <em>HHI</em>: concentración por organismo. <em>Sin cobro TGN</em>: desactivado, por el límite de la Tesorería explicado arriba.</li>
           <li><strong>Marco normativo</strong> — régimen, procedimiento y observaciones de cada contrato (ver arriba). Se puede filtrar por organismo y fechas.</li>
           <li><strong>Estadísticas</strong> — visitas por sección y por día. Requiere la clave de estadísticas.</li>
           <li><strong>Estado</strong> — último reporte, días hábiles sin reporte y cobertura de los datos; botón <em>Actualizar datos</em> y diagnóstico de las conexiones (Boletín Oficial, MEACI e IA).</li>
         </ul>
+
+        <h2>Grafo organismo ↔ proveedor</h2>
+        <p>La pestaña <strong>Grafo</strong> dibuja quién le adjudica a quién. Cada <strong>cuadrado azul</strong> es un organismo y cada <strong>círculo</strong> es un proveedor (un CUIT). Una línea une los dos cuando el organismo publicó en el BORA al menos una adjudicación a ese proveedor.</p>
+        <ul>
+          <li><strong>Colores de los proveedores:</strong> verde, si trabaja con un solo organismo; amarillo, si trabaja con varios; rojo, si el CUIT tiene una alerta de sanciones internacionales de MEACI.</li>
+          <li><strong>Tamaño y grosor:</strong> el tamaño del nodo crece con la cantidad de avisos. El grosor de la línea crece con los avisos entre ese organismo y ese proveedor. La línea es roja si al menos uno de esos avisos fue por contratación directa.</li>
+          <li><strong>Filtros:</strong> organismo o sigla, CUIT, fechas, mínimo de avisos por vínculo y "Solo proveedores de varios organismos", que deja solo los proveedores compartidos y los organismos que los contratan.</li>
+          <li><strong>Interacción:</strong> un clic en un nodo muestra sus datos en el panel lateral y un doble clic abre el perfil del organismo o del proveedor. La lista "Proveedores de varios organismos" centra el grafo en cada uno.</li>
+          <li><strong>Principal proveedor:</strong> en cada organismo, la parte de sus compras que se llevó el proveedor más grande. Se mide por monto si al menos la mitad de los avisos tiene monto; si no, por cantidad de avisos. El panel indica cuál de las dos medidas se usó. Es un dato informativo y no cambia ningún puntaje de riesgo.</li>
+        </ul>
+        <p><strong>Cómo leerlo:</strong> un organismo rodeado de muchos proveedores chicos compra de forma diversificada. Un organismo unido a uno o dos proveedores con líneas gruesas concentra sus compras. Un proveedor amarillo con líneas a varios organismos vende a distintas áreas del Estado. Nada de esto prueba una irregularidad. Son patrones para mirar con más detalle en el perfil y en el aviso del BORA.</p>
+        <p><strong>Límites:</strong> solo entran los avisos con CUIT legible; los que no lo tienen se cuentan aparte, en el indicador "Avisos sin CUIT". Los organismos se agrupan por su nombre base, así que las direcciones regionales de un mismo organismo aparecen juntas. El grafo no incluye las compras que no se publican en el BORA.</p>
 
         <h2>Otras señales</h2>
         <ul>
@@ -1084,11 +1167,24 @@
           <li><strong>Organismos (Agencies)</strong> — ranking by awarded amount (and by count when there is no amount). Under <em>Perfil individual</em>, type the name or acronym and pick from the list; when there are several matches (for example, ARCA's regional offices) you can open one or view them all together. You can also click a bar in the chart. <strong>HHI</strong> measures vendor concentration: above 2,500 is high concentration. It uses amounts when enough are available and award counts otherwise; the profile says which.</li>
           <li><strong>Proveedores (Vendors)</strong> — awards grouped by CUIT. Search by CUIT (with or without dashes) or by name. "Cobrado TGN" shows n/a because the Treasury does not report payments per CUIT.</li>
           <li><strong>Sin CUIT (No CUIT)</strong> — notices whose CUIT could not be read, with a link to the BORA notice for manual review. They do not appear under Vendors.</li>
+          <li><strong>Grafo (Graph)</strong> — network of agencies and vendors linked by their awards (see below).</li>
           <li><strong>Monitor</strong> — <em>Fragmentation</em>: agencies with several contracts of up to 1,000 modules, a possible split to avoid a more competitive procedure. <em>Single vendor</em>: agencies that always awarded to the same CUIT. <em>HHI</em>: concentration per agency. <em>No TGN payment</em>: disabled, because of the Treasury limitation explained above.</li>
           <li><strong>Marco normativo (Legal framework)</strong> — regime, procedure and remarks for each contract (see above). It can be filtered by agency and dates.</li>
           <li><strong>Estadísticas (Usage statistics)</strong> — visits per section and per day. Requires the statistics key.</li>
           <li><strong>Estado (Status)</strong> — latest report, business days without a report and data coverage; the <em>Actualizar datos</em> button and a check of the connections (Official Gazette, MEACI and AI).</li>
         </ul>
+
+        <h2>Agency ↔ vendor graph</h2>
+        <p>The <strong>Grafo (Graph)</strong> tab shows who awards contracts to whom. Each <strong>blue square</strong> is a government agency and each <strong>circle</strong> is a vendor (a CUIT tax ID). A line joins the two when the agency published at least one award to that vendor in the Official Gazette (BORA).</p>
+        <ul>
+          <li><strong>Vendor colours:</strong> green for a vendor that works with a single agency, yellow for one that works with several, and red when the CUIT has an international sanctions alert from MEACI.</li>
+          <li><strong>Size and thickness:</strong> a node grows with its number of notices. A line gets thicker with the number of notices between that agency and that vendor. The line is red when at least one of those notices was a direct award.</li>
+          <li><strong>Filters:</strong> agency or acronym, CUIT, dates, minimum notices per link, and "Solo proveedores de varios organismos" (vendors of several agencies only), which keeps only shared vendors and the agencies that hire them.</li>
+          <li><strong>Interaction:</strong> click a node to see its figures in the side panel, and double-click it to open the agency or vendor profile. The "Proveedores de varios organismos" list centres the graph on each one.</li>
+          <li><strong>Main vendor:</strong> for each agency, the share of its purchases that went to its largest vendor. It uses amounts when at least half of the notices include one, and notice counts otherwise. The panel says which of the two was used. It is informational only and does not change any risk score.</li>
+        </ul>
+        <p><strong>How to read it:</strong> an agency surrounded by many small vendors buys from a diversified base. An agency joined to one or two vendors by thick lines concentrates its purchases. A yellow vendor linked to several agencies sells to different parts of the State. None of this proves wrongdoing. These are patterns to examine more closely in the profile and in the BORA notice.</p>
+        <p><strong>Limits:</strong> only notices with a readable CUIT are included; notices without one are counted separately, in the "Avisos sin CUIT" (notices without CUIT) figure. Agencies are grouped by their base name, so the regional offices of one agency appear together. The graph does not include purchases that are not published in the BORA.</p>
 
         <h2>Other signals</h2>
         <ul>
@@ -1261,6 +1357,10 @@ function nav(seccion, el) {
   if (seccion === 'sincuit' && !state.sinCuitInit) {
     state.sinCuitInit = true;
     cargarSinCuit();
+  }
+  if (seccion === 'grafo' && !state.grafoInit) {
+    state.grafoInit = true;
+    cargarGrafo();
   }
   if (seccion === 'monitor' && !state.monitorCargado) {
     state.monitorCargado = true;
@@ -2073,6 +2173,140 @@ function abrirOrganismoDesdeResumen(nombre) {
   buscarOrganismo();
 }
 
+// ── GRAFO ORGANISMO ↔ PROVEEDOR ──────────────────────────────────────────────
+const GRAFO = { red: null, nodos: {}, libPromesa: null };
+
+function cargarVisNetwork() {
+  if (window.vis && window.vis.Network) return Promise.resolve();
+  if (!GRAFO.libPromesa) {
+    GRAFO.libPromesa = new Promise((ok, mal) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js';
+      s.onload = ok;
+      s.onerror = () => { GRAFO.libPromesa = null; mal(new Error('no se pudo cargar la biblioteca del grafo')); };
+      document.head.appendChild(s);
+    });
+  }
+  return GRAFO.libPromesa;
+}
+
+async function cargarGrafo() {
+  const cont = document.getElementById('grafo-canvas');
+  cont.innerHTML = '<div class="loading"><div class="spinner"></div> Cargando…</div>';
+  const p = new URLSearchParams();
+  const v = id => document.getElementById(id).value.trim();
+  if (v('grafo-organismo')) p.set('organismo', v('grafo-organismo'));
+  if (v('grafo-cuit'))      p.set('cuit', v('grafo-cuit'));
+  if (v('grafo-desde'))     p.set('desde', v('grafo-desde'));
+  if (v('grafo-hasta'))     p.set('hasta', v('grafo-hasta'));
+  p.set('min_avisos', v('grafo-min') || '1');
+  if (document.getElementById('grafo-compartidos').checked) p.set('solo_compartidos', 'true');
+  try {
+    const [d] = await Promise.all([api('/api/grafo?' + p.toString()), cargarVisNetwork()]);
+    dibujarGrafo(d);
+  } catch (e) {
+    cont.innerHTML = '<div style="padding:20px;color:var(--red);font-size:12px">Error al cargar el grafo: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function esMeaci(n) {
+  return !!(MEACI[n.cuit] || MEACI[n.cuit_digitos]);
+}
+
+function dibujarGrafo(d) {
+  const r = d.resumen || {};
+  document.getElementById('grafo-kpis').innerHTML = [
+    [r.organismos, 'Organismos'], [r.proveedores, 'Proveedores'], [r.aristas, 'Vínculos'],
+    [r.compartidos, 'Proveedores de varios organismos'], [r.avisos, 'Avisos con CUIT'],
+    [r.sin_cuit, 'Avisos sin CUIT (fuera del grafo)'],
+  ].map(([n, l]) => `<div class="kpi"><div class="kpi-val">${(n ?? 0).toLocaleString('es-AR')}</div><div class="kpi-lbl">${l}</div></div>`).join('');
+
+  const lista = document.getElementById('grafo-compartidos-lista');
+  const top = r.top_compartidos || [];
+  lista.innerHTML = top.length
+    ? top.map(c => `<li data-id="p:${c.cuit.replace(/\D/g, '')}">${escHtml(c.label)} — <b>${c.organismos}</b> organismos, ${c.avisos} avisos</li>`).join('')
+    : '<li style="cursor:default">Ninguno con estos filtros.</li>';
+  lista.querySelectorAll('li[data-id]').forEach(li => li.addEventListener('click', () => enfocarNodoGrafo(li.dataset.id)));
+
+  const cont = document.getElementById('grafo-canvas');
+  if (!d.nodos.length) {
+    cont.innerHTML = '<div style="padding:20px;color:var(--text3);font-size:12px">No hay adjudicaciones con CUIT para estos filtros.</div>';
+    return;
+  }
+  GRAFO.nodos = {};
+  const maxAv = Math.max(...d.nodos.map(n => n.avisos), 1);
+  const nodos = d.nodos.map(n => {
+    GRAFO.nodos[n.id] = n;
+    const tam = 10 + 30 * Math.sqrt(n.avisos / maxAv);
+    if (n.tipo === 'organismo') {
+      return { id: n.id, label: n.label.length > 28 ? n.label.slice(0, 27) + '…' : n.label, shape: 'square', size: tam,
+               color: { background: '#1e6fd9', border: '#7dc4ff' }, font: { color: '#e8f0fe', size: 13 } };
+    }
+    const meaci = esMeaci(n);
+    const color = meaci ? '#e03c3c' : (n.organismos > 1 ? '#f0a500' : '#1db87a');
+    return { id: n.id, label: (n.organismos > 1 || meaci) ? n.label.slice(0, 24) : '', shape: 'dot', size: tam * 0.7,
+             color: { background: color, border: color }, font: { color: '#8ab4e8', size: 11 } };
+  });
+  const aristas = d.aristas.map(a => ({
+    from: a.from, to: a.to, width: Math.min(1 + a.avisos, 8),
+    color: { color: a.directas > 0 ? '#e03c3c' : '#2a5298', opacity: 0.8 },
+  }));
+  cont.innerHTML = '';
+  if (GRAFO.red) GRAFO.red.destroy();
+  GRAFO.red = new vis.Network(cont, { nodes: new vis.DataSet(nodos), edges: new vis.DataSet(aristas) }, {
+    physics: { solver: 'forceAtlas2Based', stabilization: { iterations: 250 } },
+    interaction: { hover: true },
+    edges: { smooth: false },
+  });
+  GRAFO.red.once('stabilizationIterationsDone', () => { GRAFO.red.setOptions({ physics: false }); GRAFO.red.fit(); });
+  GRAFO.red.on('click', e => { if (e.nodes.length) mostrarNodoGrafo(e.nodes[0]); });
+  GRAFO.red.on('doubleClick', e => { if (e.nodes.length) abrirPerfilDesdeGrafo(e.nodes[0]); });
+}
+
+function mostrarNodoGrafo(id) {
+  const n = GRAFO.nodos[id];
+  if (!n) return;
+  const el = document.getElementById('grafo-info');
+  if (n.tipo === 'organismo') {
+    el.innerHTML = `<b>${escHtml(n.label)}</b><br>
+      Avisos con CUIT: <b>${n.avisos}</b><br>
+      Proveedores distintos: <b>${n.proveedores}</b><br>
+      Monto adjudicado: <b>${fmtMonto(n.monto)}</b><br>
+      Principal proveedor: <b>${n.concentracion ?? '—'} %</b> del ${n.concentracion_base === 'monto' ? 'monto' : 'total de avisos'}<br>`;
+  } else {
+    el.innerHTML = `<b>${escHtml(n.label)}</b><br>
+      CUIT: <span style="font-family:var(--mono)">${escHtml(n.cuit)}</span>${esMeaci(n) ? ' <span class="chip-meaci">🌍 ALERTA</span>' : ''}<br>
+      Organismos que le adjudicaron: <b>${n.organismos}</b><br>
+      Avisos: <b>${n.avisos}</b> (${n.directas} por contratación directa)<br>
+      Monto adjudicado: <b>${fmtMonto(n.monto)}</b><br>
+      Avisos con riesgo alto: <b>${n.riesgo_alto}</b><br>`;
+  }
+  const b = document.createElement('button');
+  b.className = 'btn';
+  b.style.marginTop = '8px';
+  b.textContent = n.tipo === 'organismo' ? 'Abrir perfil del organismo' : 'Abrir perfil del proveedor';
+  b.addEventListener('click', () => abrirPerfilDesdeGrafo(id));
+  el.appendChild(b);
+}
+
+function enfocarNodoGrafo(id) {
+  if (!GRAFO.red || !GRAFO.nodos[id]) return;
+  GRAFO.red.selectNodes([id]);
+  GRAFO.red.focus(id, { scale: 1.4, animation: true });
+  mostrarNodoGrafo(id);
+}
+
+function abrirPerfilDesdeGrafo(id) {
+  const n = GRAFO.nodos[id];
+  if (!n) return;
+  if (n.tipo === 'organismo') {
+    abrirOrganismoDesdeResumen(n.label);
+  } else {
+    nav('proveedores', document.querySelector('.nav-item[data-section="proveedores"]'));
+    verPerfilProv(n.cuit);
+  }
+}
+
 // ── ESTADO DEL SISTEMA ────────────────────────────────────────────────────────
 async function cargarEstado() {
   cargarDiagnostico();
@@ -2267,6 +2501,7 @@ async function cargarMEACI() {
       console.log('🌍 MEACI alertas:', Object.keys(MEACI).length);
       // Re-renderizar tablas para mostrar badges
       if (state.provInit) cargarProveedores();
+      if (state.grafoInit && GRAFO.red) cargarGrafo();
       if (state.contratosInit) _fetchContratos();
     }
   } catch(e) { /* MEACI no disponible, no bloquea */ }

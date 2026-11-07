@@ -881,7 +881,7 @@
         <span><i style="background:#f0a500;border-radius:50%"></i>Proveedor de varios organismos</span>
         <span><i style="background:#e03c3c;border-radius:50%"></i>🌍 Alerta MEACI</span>
         <span><i style="background:#e03c3c;height:3px;vertical-align:3px"></i>Vínculo con contratación directa</span>
-        <span>Tamaño: cantidad de avisos · Grosor: avisos del vínculo</span>
+        <span>Cada nodo lleva el nombre del organismo o del proveedor · Tamaño: cantidad de avisos · Grosor: avisos del vínculo</span>
       </div>
       <div class="grafo-layout">
         <div id="grafo-canvas" class="grafo-canvas"><div class="loading"><div class="spinner"></div> Cargando…</div></div>
@@ -1085,6 +1085,7 @@
         <h2>Grafo organismo ↔ proveedor</h2>
         <p>La pestaña <strong>Grafo</strong> dibuja quién le adjudica a quién. Cada <strong>cuadrado azul</strong> es un organismo y cada <strong>círculo</strong> es un proveedor (un CUIT). Una línea une los dos cuando el organismo publicó en el BORA al menos una adjudicación a ese proveedor.</p>
         <ul>
+          <li><strong>Nombres:</strong> cada nodo lleva el nombre del organismo o la razón social del proveedor; los proveedores de varios organismos y los que tienen alerta se escriben más grandes. Con el zoom (rueda del mouse o pellizco) se leen los demás.</li>
           <li><strong>Colores de los proveedores:</strong> verde, si trabaja con un solo organismo; amarillo, si trabaja con varios; rojo, si el CUIT tiene una alerta de sanciones internacionales de MEACI.</li>
           <li><strong>Tamaño y grosor:</strong> el tamaño del nodo crece con la cantidad de avisos. El grosor de la línea crece con los avisos entre ese organismo y ese proveedor. La línea es roja si al menos uno de esos avisos fue por contratación directa.</li>
           <li><strong>Filtros:</strong> organismo o sigla, CUIT, fechas, mínimo de avisos por vínculo y "Solo proveedores de varios organismos", que deja solo los proveedores compartidos y los organismos que los contratan.</li>
@@ -1177,6 +1178,7 @@
         <h2>Agency ↔ vendor graph</h2>
         <p>The <strong>Grafo (Graph)</strong> tab shows who awards contracts to whom. Each <strong>blue square</strong> is a government agency and each <strong>circle</strong> is a vendor (a CUIT tax ID). A line joins the two when the agency published at least one award to that vendor in the Official Gazette (BORA).</p>
         <ul>
+          <li><strong>Names:</strong> every node carries the agency name or the vendor's registered name; vendors of several agencies and vendors with an alert are written larger. Zoom in (mouse wheel or pinch) to read the rest.</li>
           <li><strong>Vendor colours:</strong> green for a vendor that works with a single agency, yellow for one that works with several, and red when the CUIT has an international sanctions alert from MEACI.</li>
           <li><strong>Size and thickness:</strong> a node grows with its number of notices. A line gets thicker with the number of notices between that agency and that vendor. The line is red when at least one of those notices was a direct award.</li>
           <li><strong>Filters:</strong> agency or acronym, CUIT, dates, minimum notices per link, and "Solo proveedores de varios organismos" (vendors of several agencies only), which keeps only shared vendors and the agencies that hire them.</li>
@@ -2244,8 +2246,9 @@ function dibujarGrafo(d) {
     }
     const meaci = esMeaci(n);
     const color = meaci ? '#e03c3c' : (n.organismos > 1 ? '#f0a500' : '#1db87a');
-    return { id: n.id, label: (n.organismos > 1 || meaci) ? n.label.slice(0, 24) : '', shape: 'dot', size: tam * 0.7,
-             color: { background: color, border: color }, font: { color: '#8ab4e8', size: 11 } };
+    return { id: n.id, label: n.label.length > 26 ? n.label.slice(0, 25) + '…' : n.label, shape: 'dot', size: tam * 0.7,
+             color: { background: color, border: color },
+             font: { color: (n.organismos > 1 || meaci) ? '#e8f0fe' : '#8ab4e8', size: (n.organismos > 1 || meaci) ? 12 : 9 } };
   });
   const aristas = d.aristas.map(a => ({
     from: a.from, to: a.to, width: Math.min(1 + a.avisos, 8),

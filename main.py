@@ -484,6 +484,31 @@ def status():
     }
 
 
+@app.get("/api/frescura")
+def frescura():
+    """Ficha de frescura (formato común del ecosistema, ver frescura.py): de
+    dónde sale cada dato, qué período cubre, cuándo se cargó y si está atrasado."""
+    from frescura import evaluar
+
+    archivos = _buscar_xlsx()
+    ultimo = os.path.basename(archivos[0])[8:18] if archivos else None
+    corte = None
+    try:
+        columna = pd.read_csv(CRUCE_COMPRAR_CSV, usecols=["comprar_corte"], dtype=str)["comprar_corte"].dropna()
+        corte = columna.max() if len(columna) else None
+    except Exception as e:
+        logger.warning(f"frescura: no se pudo leer el corte de COMPR.AR: {e}")
+    return evaluar("contratos", [
+        {"id": "reportes", "dato": "Reporte diario de contrataciones", "fuente": "Boletín Oficial · COMPR.AR · TGN",
+         "periodo": f"hasta {ultimo}" if ultimo else "sin reportes", "periodo_fin": ultimo, "ultima_carga": ultimo,
+         "frecuencia": "días hábiles", "max_dias_carga": 5,
+         "nota": f"{len(archivos)} reportes guardados."},
+        {"id": "cruce_comprar", "dato": "Adjudicaciones COMPR.AR 2016-2026", "fuente": "datos.gob.ar (COMPR.AR)",
+         "periodo": f"publicado hasta {corte}" if corte else "sin dato", "periodo_fin": corte, "ultima_carga": None,
+         "frecuencia": "cruce manual (la fuente publica por períodos)", "max_dias_periodo": 180},
+    ])
+
+
 @app.get("/api/resumen")
 def resumen():
     registrar_visita("resumen")

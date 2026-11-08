@@ -195,7 +195,9 @@ def alerta(fila: dict) -> str:
     cancelada = str(fila.get("cancelada", "")).strip().lower() in ("true", "1")
     tiene_cuit = bool(str(fila.get("cuit_proveedor", "")).strip())
     en_comprar = fila.get("en_comprar") == SI
-    en_tgn = str(fila.get("cobro_en_tgn", "")).startswith("✅")
+    # Reportes nuevos: cobro_en_tgn sólo dice SÍ por CUIT; los pagos del organismo van aparte.
+    en_tgn = (str(fila.get("cobro_en_tgn", "")).startswith("✅")
+              or str(fila.get("organismo_con_pagos_tgn", "")).startswith("✅"))
     tgn_cuit = str(fila.get("metodo_cruce_tgn", "")) == "CUIT"
     if cancelada:
         return "🚫 CANCELADA / DEJADA SIN EFECTO"

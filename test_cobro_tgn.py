@@ -101,3 +101,21 @@ def test_el_prompt_de_ia_no_afirma_montos_cobrados():
     with open(ruta, encoding="utf-8") as f:
         codigo = f.read()
     assert "efectivamente cobrado" not in codigo
+
+
+def test_el_excel_publicado_no_lleva_lista_de_fantasmas(tmp_path, monkeypatch):
+    monkeypatch.setattr(ac, "DATA_DIR", str(tmp_path))
+    vacio = pd.DataFrame()
+    ruta = ac.exportar_excel(pd.DataFrame([{"organismo": "ORG"}]), vacio, vacio, vacio)
+    xl = pd.ExcelFile(ruta)
+    assert not any("antasma" in h for h in xl.sheet_names)
+    assert not any("fantasma" in str(c) for c in xl.parse(xl.sheet_names[0]).columns)
+
+
+def test_ningun_analisis_guardado_lleva_lista_de_fantasmas():
+    import glob
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    archivos = glob.glob(os.path.join(raiz, "data", "analisis", "concentracion_*.xlsx"))
+    assert archivos
+    for ruta in archivos:
+        assert not any("antasma" in h for h in pd.ExcelFile(ruta).sheet_names), ruta

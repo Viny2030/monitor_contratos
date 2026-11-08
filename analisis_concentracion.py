@@ -557,7 +557,9 @@ def detectar_fantasmas(df, exportar_df=False):
 # ─────────────────────────────────────────
 # EXPORTAR REPORTE COMPLETO
 # ─────────────────────────────────────────
-def exportar_excel(df_frag, df_unico, df_rafaga, df_hhi, df_fantasmas):
+# Este Excel se publica en el repositorio. No lleva la lista de "fantasmas": señalaría a
+# proveedores con nombre y CUIT sin dato de cobro (TGN no informa el beneficiario).
+def exportar_excel(df_frag, df_unico, df_rafaga, df_hhi):
     carpeta = os.path.join(DATA_DIR, "analisis")
     os.makedirs(carpeta, exist_ok=True)
     hoy     = datetime.now().strftime("%Y-%m-%d")
@@ -570,7 +572,6 @@ def exportar_excel(df_frag, df_unico, df_rafaga, df_hhi, df_fantasmas):
             "organismos_prov_unico":     len(df_unico),
             "proveedores_rafaga":        len(df_rafaga),
             "organismos_hhi_alto":       (df_hhi["hhi"] > HHI_ALTO).sum() if not df_hhi.empty else 0,
-            "proveedores_fantasma":      len(df_fantasmas),
             "umbral_licitacion_ars":     UMBRAL_LICITACION,
             "ventana_rafaga_dias":       VENTANA_RAFAGA_DIAS,
         }])
@@ -584,8 +585,6 @@ def exportar_excel(df_frag, df_unico, df_rafaga, df_hhi, df_fantasmas):
             df_rafaga.to_excel(writer, sheet_name="⚡ Ráfagas", index=False)
         if not df_hhi.empty:
             df_hhi.to_excel(writer, sheet_name="📐 HHI Concentración", index=False)
-        if not df_fantasmas.empty:
-            df_fantasmas.to_excel(writer, sheet_name="👻 Fantasmas", index=False)
 
     print(f"  💾 Reporte exportado: {archivo}\n")
     return archivo
@@ -670,7 +669,7 @@ if __name__ == "__main__":
         df_fantasmas = detectar_fantasmas(df, exportar_df=exportar)
 
     if exportar:
-        exportar_excel(df_frag, df_unico, df_rafaga, df_hhi, df_fantasmas)
+        exportar_excel(df_frag, df_unico, df_rafaga, df_hhi)
 
     # Resumen final
     print("=" * 60)

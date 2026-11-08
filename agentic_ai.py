@@ -114,7 +114,7 @@ def explicar_perfil_proveedor(perfil: dict) -> dict:
 
 - Contratos totales: {perfil.get('total_contratos', '—')}
 - Monto adjudicado: {perfil.get('monto_adjudicado', '—')}
-- Monto efectivamente cobrado en TGN: {perfil.get('monto_cobrado_tgn', '—')}
+- Cobros en TGN: no disponible (la Tesorería no informa el CUIT del beneficiario; no saques conclusiones sobre si cobró o no)
 - Organismos contratantes distintos: {perfil.get('organismos_unicos', '—')}
 - Red flags detectadas: {perfil.get('red_flags') or 'ninguna'}
 - Top organismos: {perfil.get('top_organismos', [])[:5]}

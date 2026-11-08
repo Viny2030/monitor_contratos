@@ -881,7 +881,9 @@ def cruzar_fuentes(
             "rubros":                 cm.get("rubros", ""),
             "unidad_operativa":       cm.get("unidad_operativa", ""),
             # ── TGN ─────────────────────────────────────────────────────────
-            "cobro_en_tgn":           "✅ SÍ" if en_tgn else "❌ NO",
+            # "SÍ" sólo con coincidencia por CUIT: por organismo no se sabe quién cobró.
+            "cobro_en_tgn":           "✅ SÍ" if en_tgn and tgn_por_cuit_ok else "❌ NO",
+            "organismo_con_pagos_tgn": "✅ SÍ" if en_tgn else "❌ NO",
             "metodo_cruce_tgn":       ("CUIT" if tgn_por_cuit_ok else "organismo") if en_tgn else "",
             "organismo_tgn":          tgn_match.get("organismo_tgn", ""),
             "unidad_ejecutora_tgn":   tgn_match.get("unidad_ejecutora", ""),
@@ -1042,7 +1044,7 @@ def guardar_excels(
                 "monto_adjudicado_bora", "tipo_procedimiento",
                 "indicadores_riesgo", "score_riesgo_licit", "nivel_riesgo_licit",
                 "tipo_decision", "transferencia", "indice_fenomeno",
-                "cobro_en_tgn", "monto_pagado_tgn", "alerta", "link_bora",
+                "cobro_en_tgn", "organismo_con_pagos_tgn", "monto_pagado_tgn", "alerta", "link_bora",
             ] if c in df_cruce.columns]
             df_cruce[cols_alerta].sort_values(
                 "score_riesgo_licit", ascending=False

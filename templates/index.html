@@ -1441,7 +1441,7 @@ async function cargarInicio() {
       { val: (res.riesgo_alto||0).toLocaleString(),   lbl: 'Riesgo alto',          cls: 'red' },
       { val: (res.riesgo_medio||0).toLocaleString(),  lbl: 'Riesgo medio',         cls: 'gold' },
       { val: (res.flujo_completo||0).toLocaleString(),lbl: 'Flujo completo',       cls: 'green' },
-      { val: (res.cobraron_tgn||0).toLocaleString(),  lbl: 'Organismo con pagos TGN', cls: 'green' },
+      { val: (res.con_pagos_organismo_tgn||0).toLocaleString(),  lbl: 'Organismo con pagos TGN', cls: 'green' },
       { val: (res.con_cuit||0).toLocaleString(),      lbl: 'Con CUIT extraído',   cls: '' },
       { val: (res.organismos_unicos||0).toLocaleString(), lbl: 'Organismos únicos', cls: '' },
       { val: fmtMonto(res.monto_total_ars||0),        lbl: `Monto total ARS · solo ${res.con_monto ?? '?'} de ${res.total||0} avisos traen monto`, cls: 'blue' },
@@ -1477,8 +1477,8 @@ async function cargarInicio() {
         datasets: [{
           data: [
             res.flujo_completo || 0,
-            (res.cobraron_tgn || 0) - (res.flujo_completo || 0),
-            (res.total || 0) - (res.cobraron_tgn || 0) - (res.total - res.con_cuit || 0),
+            (res.con_pagos_organismo_tgn || 0) - (res.flujo_completo || 0),
+            (res.total || 0) - (res.con_pagos_organismo_tgn || 0) - (res.total - res.con_cuit || 0),
             (res.total || 0) - (res.con_cuit || 0),
           ].map(v => Math.max(v, 0)),
           backgroundColor: ['#1db87a','#1e6fd9','#3d9bff','#e03c3c'],

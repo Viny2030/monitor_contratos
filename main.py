@@ -33,6 +33,7 @@ from datetime import datetime
 
 import httpx
 import pandas as pd
+from cobro_tgn import normalizar_df
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -184,6 +185,8 @@ def _cargar_df() -> pd.DataFrame:
     # reemplaza el cruce viejo de los reportes y completa CUIT, proveedor y
     # monto vacíos con los del mismo proceso.
     df_total = _aplicar_cruce_comprar(df_total)
+    # Después del cruce, que recalcula la alerta: "cobró" sólo si el cruce fue por CUIT.
+    df_total = normalizar_df(df_total)
     # Recalcular el riesgo con las reglas vigentes (los reportes viejos guardaron el
     # nivel con indicadores ya retirados: "Sin CUIT", "Sin cobro TGN", "monto < $10M").
     # Va después de las correcciones y del cruce, para que use los datos completos.
@@ -528,6 +531,8 @@ def resumen():
     medio = int((df[col_riesgo] == "Medio").sum()) if col_riesgo else 0
     flujo = int(df[col_alerta].str.contains("FLUJO COMPLETO", na=False).sum()) if col_alerta else 0
     tgn   = int((df[col_cobro] == "✅ SÍ").sum()) if col_cobro else 0
+    col_pagos = _col(df, ["organismo_con_pagos_tgn"])
+    con_pagos = int((df[col_pagos] == "✅ SÍ").sum()) if col_pagos else 0
 
     con_cuit  = int(df[col_cuit].astype(str).str.strip().astype(bool).sum()) if col_cuit else 0
     organismos_u = int(df[col_org].nunique()) if col_org else 0
@@ -544,7 +549,9 @@ def resumen():
         "riesgo_alto":        alto,
         "riesgo_medio":       medio,
         "flujo_completo":     flujo,
+        # cobraron_tgn: confirmado por CUIT. con_pagos_organismo_tgn: el organismo tuvo pagos.
         "cobraron_tgn":       tgn,
+        "con_pagos_organismo_tgn": con_pagos,
         "con_cuit":           con_cuit,
         "organismos_unicos":  organismos_u,
         "monto_total_ars":    round(float(monto_total), 2),
@@ -649,18 +656,23 @@ def organismos(top: int = Query(20, le=100), orden: str = Query("monto", pattern
 
     df = df.copy()
     df["_monto"] = df[col_monto].apply(_parsear_monto) if col_monto else 0
+    col_pagos = _col(df, ["organismo_con_pagos_tgn"])
+    df["_con_pagos"] = (df[col_pagos] == "✅ SÍ").astype(int) if col_pagos else 0
+    df["_cobro"] = (df[col_cobro] == "✅ SÍ").astype(int) if col_cobro else 0
 
     grp = df.groupby(col_org).agg(
         adjudicaciones=("_monto", "count"),
         monto_total=("_monto", "sum"),
         proveedores_distintos=(col_cuit, "nunique") if col_cuit else ("_monto", "count"),
-        cobraron_tgn=(col_cobro, lambda x: (x == "✅ SÍ").sum()) if col_cobro else ("_monto", "count"),
+        cobraron_tgn=("_cobro", "sum"),
+        con_pagos_organismo_tgn=("_con_pagos", "sum"),
     ).reset_index()
     # Solo ~1 de cada 9 avisos trae monto: a igual monto se ordena por cantidad
     claves = ["adjudicaciones", "monto_total"] if orden == "cantidad" else ["monto_total", "adjudicaciones"]
     grp = grp.sort_values(claves, ascending=False).head(top)
 
-    grp.columns = ["organismo", "adjudicaciones", "monto_total", "proveedores_distintos", "cobraron_tgn"]
+    grp.columns = ["organismo", "adjudicaciones", "monto_total", "proveedores_distintos",
+                   "cobraron_tgn", "con_pagos_organismo_tgn"]
     return {"data": grp.fillna(0).to_dict(orient="records")}
 
 
@@ -1274,7 +1286,7 @@ def licitaciones_datos(fecha: str | None = Query(None)):
     flujo = []
     hoja_flujo = _hoja(["🚨 Flujo Completo", "Flujo Completo"])
     if hoja_flujo:
-        df_f = xl.parse(hoja_flujo).fillna("")
+        df_f = normalizar_df(xl.parse(hoja_flujo).fillna(""))
         # Mapear columnas al esquema que espera el IRI
         for c in df_f.select_dtypes(include=["datetime64"]).columns:
             df_f[c] = df_f[c].dt.strftime("%Y-%m-%d")

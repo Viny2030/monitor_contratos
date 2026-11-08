@@ -505,6 +505,13 @@ def detectar_fantasmas(df, exportar_df=False):
 
     df_valido = df[df["_cuit"].str.strip().ne("") & df["_monto"].gt(0)].copy()
 
+    # Sin coincidencias por CUIT no se puede saber quién cobró: Presupuesto Abierto no
+    # informa el beneficiario, y marcar "fantasma" a un proveedor sería una acusación sin dato.
+    metodos = df_valido["metodo_cruce_tgn"] if "metodo_cruce_tgn" in df_valido.columns else pd.Series(dtype=str)
+    if not metodos.astype(str).str.strip().str.upper().eq("CUIT").any():
+        print("  ℹ️ No disponible: no hay cruces por CUIT con TGN\n")
+        return pd.DataFrame()
+
     # Determinar quién nunca cobró
     if df["cobro_en_tgn"].dtype == object if "cobro_en_tgn" in df.columns else False:
         cobro_mask = df_valido["cobro_en_tgn"].isin(["✅ SÍ", "True", True])

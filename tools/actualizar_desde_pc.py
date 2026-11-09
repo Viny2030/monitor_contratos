@@ -79,16 +79,30 @@ def generar_dia(d: date, actuales: dict) -> dict:
     if not df_cruce.empty:
         df_cruce = diario._agregar_riesgo(df_cruce)
     diario.guardar_excels(df_cruce, df_adj, df_licit, df_comprar, df_tgn, d)
-    return {"fecha": d.isoformat(), "estado": "ok", "adjudicaciones": len(df_adj),
-            "licitaciones": len(df_licit), "comprar": len(df_comprar), "tgn": len(df_tgn),
-            "cruce": len(df_cruce)}
+    return {
+        "fecha": d.isoformat(),
+        "estado": "ok",
+        "adjudicaciones": len(df_adj),
+        "licitaciones": len(df_licit),
+        "comprar": len(df_comprar),
+        "tgn": len(df_tgn),
+        "cruce": len(df_cruce),
+    }
 
 
 def _correr(*cmd, check=True):
     print("   $ " + " ".join(cmd))
     entorno = dict(os.environ, PYTHONIOENCODING="utf-8")  # los scripts imprimen emojis
-    return subprocess.run(list(cmd), cwd=RAIZ, check=check, text=True, capture_output=True,
-                          encoding="utf-8", errors="replace", env=entorno)
+    return subprocess.run(
+        list(cmd),
+        cwd=RAIZ,
+        check=check,
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env=entorno,
+    )
 
 
 def publicar(fechas: list):
@@ -133,8 +147,7 @@ def main(argv=None):
         print("\n🔬 Análisis de concentración…", flush=True)
         r = _correr(sys.executable, "-W", "ignore", "analisis_concentracion.py", "--exportar", check=False)
         print("   OK" if r.returncode == 0 else f"   ⚠️ falló (código {r.returncode}): {r.stderr[-500:]}")
-        print("
-🔗 Cruce con COMPR.AR 2016-2026…", flush=True)
+        print("\n🔗 Cruce con COMPR.AR 2016-2026…", flush=True)
         r = _correr(sys.executable, "-W", "ignore", "tools/cruzar_comprar.py", check=False)
         print(r.stdout[-800:] if r.returncode == 0 else f"   ⚠️ falló (código {r.returncode}): {r.stderr[-500:]}")
     if a.publicar and generados:

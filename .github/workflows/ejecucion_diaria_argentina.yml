@@ -75,7 +75,20 @@ jobs:
           git config user.name "Robot Monitor" || exit /b 1
           git config user.email "robot@noreply.github.com" || exit /b 1
           "%PYTHON_MONITOR%" -W ignore tools/actualizar_desde_pc.py --publicar --desde "${{ github.event.inputs.desde || '2026-10-21' }}"
+      - name: Actualizar cruce con COMPR.AR (grafo de proveedores)
+        shell: cmd
+        run: |
+          "%PYTHON_MONITOR%" tools\cruzar_comprar.py
+        continue-on-error: true
 
+      - name: Commit y push del cruce COMPR.AR
+        shell: cmd
+        run: |
+          git add data\cruce\comprar.csv
+          git diff --cached --quiet || git commit -m "Actualizar cruce COMPR.AR (grafo de proveedores)"
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
+        continue-on-error: true
       # El sitio también puede traer los reportes con su botón "Actualizar datos"
       # (POST /api/datos/actualizar, sin clave); acá se lo pide apenas se publican.
       - name: Avisar al sitio que hay datos nuevos

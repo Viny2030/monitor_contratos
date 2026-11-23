@@ -153,7 +153,18 @@ class IndiceComprar:
         cols = ["Numero_Proceso", "Descripcion_SAF", "Descripcion_UOC", "Tipo_de_Procedimiento", "Modalidad",
                 "Apartado_Directa", "Ejercicio", "Fecha_de_Adjudicacion", "Rubros", "CUIT",
                 "Descripcion_Proveedor", "Monto", "Moneda"]
-        df = pd.read_csv(ruta, dtype=str, encoding="utf-8-sig", usecols=lambda c: c in cols, low_memory=False)
+        renombrar = {
+            "Número Procedimiento": "Numero_Proceso",
+            "Descripcion SAF": "Descripcion_SAF",
+            "Descripcion UOC": "Descripcion_UOC",
+            "Tipo de Procedimiento": "Tipo_de_Procedimiento",
+            "Apartado Directa": "Apartado_Directa",
+            "Fecha de Adjudicación": "Fecha_de_Adjudicacion",
+            "Descripción Proveedor": "Descripcion_Proveedor",
+        }
+        df = pd.read_csv(ruta, sep=";", dtype=str, encoding="utf-8-sig", low_memory=False)
+        df = df.rename(columns=renombrar)
+        df = df[[c for c in cols if c in df.columns]]
         return cls(df)
 
     def saf(self, organismo: str):

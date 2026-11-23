@@ -142,7 +142,7 @@ class IndiceComprar:
         df["_tipo"], df["_yy"] = m[1], m[2]
         df["_saf"] = df["Descripcion_SAF"].astype(str).str.extract(r"^(\d+)")[0]
         df["_monto"] = pd.to_numeric(df["Monto"].astype(str).str.replace(",", ".", regex=False), errors="coerce")
-        fechas = pd.to_datetime(df["Fecha_de_Adjudicacion"].astype(str).str[:10], format="%d/%m/%Y", errors="coerce")
+        fechas = pd.to_datetime(df["Fecha_de_Adjudicacion"].astype(str).str.split().str[0], format="%d/%m/%Y", errors="coerce")
         self.corte: date | None = fechas.max().date() if fechas.notna().any() else None
         self.saf_por_nombre = {norm_org(n): s for s, n in
                                df.dropna(subset=["_saf"]).groupby("_saf")["Descripcion_SAF"].first().items()}
